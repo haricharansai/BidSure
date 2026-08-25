@@ -6,6 +6,7 @@ import {
   ClipboardCheck, Clock3, Download, FileCheck2, FileSearch, FileText, HelpCircle, History, LockKeyhole,
   LogIn, Menu, Search, Settings2, ShieldCheck, SlidersHorizontal, UserRound, Users, X, XCircle, Eye,
 } from 'lucide-react'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 type View = 'home' | 'about' | 'help' | 'login' | 'dashboard' | 'tenders' | 'tender' | 'evaluation' | 'compliance' | 'documents' | 'reports' | 'audit' | 'my-bids' | 'opportunities' | 'support'
 type Role = 'officer' | 'seller'
@@ -44,29 +45,34 @@ function Home({ navigate }: { navigate: (v: View) => void }) {
 function ProcessGraphic() { const steps = [['Tender Requirements','☑','Eligibility criteria, technical specifications, and terms'],['Bid Documents','▤','Documents submitted by bidders for evaluation'],['Verification','✓','Information verified against authorized sources'],['Compliance Review','●','Exceptions highlighted for procurement officer review']]; return <div className="process">{steps.map(([title, icon, text], i) => <div className="process-step" key={title}><b>{title}</b><div className={`doc doc-${i}`}><span>{icon}</span><i /><i /><i /><i /></div><p>{text}</p>{i < 3 && <ChevronRight className="step-arrow" />}</div>)}</div> }
 function Pillar({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="pillar"><div className="circle-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div> }
 function Login({ navigate, role, setRole }: { navigate: (v: View) => void; role: Role | null; setRole: (r: Role) => void }) {
-  const [loginType, setLoginType] = useState<'officer' | 'seller'>('seller')
+  const [loginType, setLoginType] = useState<Role>('seller')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [registrationNumber, setRegistrationNumber] = useState('')
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
 
-  useEffect(() => {
-    const ref = document.referrer
-    if (ref && !ref.includes('bid-sure')) {
-      sessionStorage.setItem('returnAfterLogin', ref)
-    }
-  }, [])
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setRole(loginType)
-    const stored = sessionStorage.getItem('returnAfterLogin')
-    let returnTo: View = 'dashboard'
-    if (stored) {
-      const path = stored.replace(window.location.origin, '').replace(/^\//, '')
-      const validViews: View[] = ['dashboard', 'tenders', 'tender', 'evaluation', 'compliance', 'documents', 'reports', 'audit']
-      if (validViews.includes(path as View)) {
-        returnTo = path as View
-      }
-      sessionStorage.removeItem('returnAfterLogin')
+    setError('')
+    setPending(true)
+    const supabase = createSupabaseBrowserClient()
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    if (authError || !data.user) {
+      setError('Invalid email or password.')
+      setPending(false)
+      return
     }
-    navigate(returnTo)
+    const profile = await supabase.from('users').select('role, company_name').eq('id', data.user.id).maybeSingle()
+    if (profile.error || !profile.data || profile.data.role !== loginType) {
+      setError('This account is not authorized for the selected portal.')
+      await supabase.auth.signOut()
+      setPending(false)
+      return
+    }
+    setRole(profile.data.role as Role)
+    navigate('dashboard')
   }
 
   return (
@@ -76,93 +82,18 @@ function Login({ navigate, role, setRole }: { navigate: (v: View) => void; role:
           <Logo />
           <p className="eyebrow">AUTHORIZED ACCESS</p>
           <h1>{loginType === 'officer' ? 'Officer portal' : 'Seller portal'}</h1>
-          <p>
-            {loginType === 'officer'
-              ? 'Sign in to manage tenders, verify bidder submissions, and complete compliance reviews.'
-              : 'Sign in to submit bids, track tender status, and manage your compliance documents.'}
-          </p>
-          <div className="secure-note">
-            <ShieldCheck size={20} />
-            <span>
-              <b>Secure government service</b>
-              <small>Your session is protected with end-to-end encryption.</small>
-            </span>
-          </div>
+          <p>{loginType === 'officer' ? 'Sign in to manage tenders, verify bidder submissions, and complete compliance reviews.' : 'Sign in to submit bids, track tender status, and manage your compliance documents.'}</p>
+          <div className="secure-note"><ShieldCheck size={20} /><span><b>Secure government service</b><small>Your session is protected with end-to-end encryption.</small></span></div>
         </div>
         <form onSubmit={handleSubmit}>
-          <div className="login-type-toggle">
-            <button
-              type="button"
-              className={loginType === 'seller' ? 'active' : ''}
-              onClick={() => setLoginType('seller')}
-            >
-              Seller Login
-            </button>
-            <button
-              type="button"
-              className={loginType === 'officer' ? 'active' : ''}
-              onClick={() => setLoginType('officer')}
-            >
-              Officer Login
-            </button>
-          </div>
-          {loginType === 'officer' ? (
-            <>
-              <label>
-                Official email address
-                <input type="email" placeholder="name@department.gov" required />
-              </label>
-              <label>
-                Password
-                <input type="password" placeholder="Enter your password" required />
-              </label>
-              <label>
-                Department
-                <input type="text" placeholder="e.g. Ministry of Digital Transformation" required />
-              </label>
-              <label>
-                Employee ID
-                <input type="text" placeholder="e.g. EMP-2024-00142" required />
-              </label>
-            </>
-          ) : (
-            <>
-              <label>
-                Business email address
-                <input type="email" placeholder="contact@company.com" required />
-              </label>
-              <label>
-                Password
-                <input type="password" placeholder="Enter your password" required />
-              </label>
-              <label>
-                Company Name
-                <input type="text" placeholder="e.g. Nexora Systems Pvt. Ltd." required />
-              </label>
-              <label>
-                Registration Number
-                <input type="text" placeholder="e.g. CIN U72900DL2014PTC" required />
-              </label>
-              <label>
-                TIN
-                <input type="text" placeholder="e.g. TIN-07ABCDE1234F" required />
-              </label>
-            </>
-          )}
-          <div className="form-line">
-            <label className="check">
-              <input type="checkbox" /> Remember me
-            </label>
-            <button type="button" className="text-button">
-              Forgot password?
-            </button>
-          </div>
-          <button className="primary wide" type="submit">
-            <LogIn size={18} /> {loginType === 'officer' ? 'Sign in to portal' : 'Sign in as seller'}
-          </button>
-          <button type="button" className="back-link" onClick={() => navigate('home')}>
-            ← Return to BidSure home
-          </button>
+          <div className="login-type-toggle"><button type="button" className={loginType === 'seller' ? 'active' : ''} onClick={() => setLoginType('seller')}>Seller Login</button><button type="button" className={loginType === 'officer' ? 'active' : ''} onClick={() => setLoginType('officer')}>Officer Login</button></div>
+          <label>{loginType === 'officer' ? 'Official email address' : 'Business email address'}<input type="email" placeholder={loginType === 'officer' ? 'name@department.gov' : 'contact@company.com'} value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+          <label>Password<input type="password" placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+          {loginType === 'seller' && <><label>Company Name<input type="text" placeholder="e.g. Nexora Systems Pvt. Ltd." value={companyName} onChange={(e) => setCompanyName(e.target.value)} /></label><label>Registration Number<input type="text" placeholder="e.g. CIN U72900DL2014PTC" value={registrationNumber} onChange={(e) => setRegistrationNumber(e.target.value)} /></label></>}
+          {error && <p role="alert" className="form-error">{error}</p>}
+          <div className="form-line"><label className="check"><input type="checkbox" /> Remember me</label><button type="button" className="text-button">Forgot password?</button></div>
+          <button className="primary wide" type="submit" disabled={pending}><LogIn size={18} /> {pending ? 'Signing in…' : loginType === 'officer' ? 'Sign in to portal' : 'Sign in as seller'}</button>
+          <button type="button" className="back-link" onClick={() => navigate('home')}>← Return to BidSure home</button>
         </form>
       </div>
     </main>
