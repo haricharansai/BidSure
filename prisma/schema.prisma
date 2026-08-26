@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  MANUAL_REVIEW
+}
+
+enum DocumentType {
+  GST_CERTIFICATE
+  PAN_CARD
+  UDYAM_CERTIFICATE
+  INCOME_TAX_RETURN
+  COMPANY_REGISTRATION
+  STARTUP_CERTIFICATE
+  NSIC_CERTIFICATE
+  OTHER
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  bids      Bid[]
+}
+
+model Bidder {
+  id          Int      @id @default(autoincrement())
+  companyName String
+  gstNumber   String?  @unique
+  panNumber   String?  @unique
+  udyamNumber String?  @unique
+  createdAt   DateTime  @default(now())
+
+  bids        Bid[]
+  documents   Document[]
+}
+
+model Bid {
+  id          Int      @id @default(autoincrement())
+  title       String
+  tenderId    String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  userId      Int
+  bidderId    Int
+
+  user        User     @relation(fields: [userId], references: [id])
+  bidder      Bidder   @relation(fields: [bidderId], references: [id])
+
+  documents   Document[]
+  verifications Verification[]
+}
+
+model Document {
+  id          Int          @id @default(autoincrement())
+  fileName    String
+  fileUrl     String
+  documentType DocumentType
+  uploadedAt  DateTime     @default(now())
+
+  bidderId    Int
+  bidId       Int
+
+  bidder      Bid        @relation(fields: [bidId], references: [id])
+  bidderInfo  Bidder      @relation(fields: [bidderId], references: [id])
+
+  verifications Verification[]
+}
+
+model ComplianceRequirement {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String
+  rule        String
+  mandatory   Boolean  @default(true)
+
+  verifications Verification[]
+}
+
+model Verification {
+  id              Int                @id @default(autoincrement())
+  status          VerificationStatus @default(PENDING)
+  extractedValue  String?
+  expectedValue   String?
+  remarks         String?
+  verifiedAt      DateTime?
+
+  bidId           Int
+  documentId      Int
+  requirementId   Int
+
+  bid             Bid                  @relation(fields: [bidId], references: [id])
+  document        Document             @relation(fields: [documentId], references: [id])
+  requirement     ComplianceRequirement @relation(fields: [requirementId], references: [id])
+}
