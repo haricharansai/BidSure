@@ -3,7 +3,7 @@
 // them with run='PRELIMINARY'. These results are never used for scoring.
 import { prisma } from '@/lib/prisma'
 import { recordAudit } from '@/lib/server/audit'
-import { verifyDocument } from '@/lib/server/verify.ts'
+import { verifyDocument, type CompanyIdentityRef } from '@/lib/server/verify.ts'
 
 export interface PreliminaryInput {
   submittedDocId: string
@@ -15,6 +15,8 @@ export interface PreliminaryInput {
   originalName: string
   tenderId: string
   actor: { id: string; role: string }
+  /** Bidder company profile for the three-way identity chain (declared data). */
+  company?: CompanyIdentityRef
 }
 
 export interface PreliminaryResult {
@@ -61,11 +63,15 @@ export async function runPreliminaryVerification(input: PreliminaryInput): Promi
   }
 
   // Preliminary doc-level flag for the seller UI (never authoritative).
+  // Extraction failure on a provided document is a REVIEW signal, never an
+  // automatic rejection (plan §26: fraud cannot be distinguished from an
+  // unreadable scan).
   const worst = worstCheckStatus(outcome.checks)
+  const docStatus = outcome.extractionStatus === 'FAILED' ? 'NEEDS_REVIEW' : (worst ?? 'UNVERIFIED')
   await prisma.submittedDoc.update({
     where: { id: input.submittedDocId },
     data: {
-      status: worst ?? 'UNVERIFIED',
+      status: docStatus,
       note: outcome.error ?? (outcome.checks.length ? 'Preliminary verification complete — final verdict pending bid evaluation' : 'Uploaded — awaiting final verification'),
     },
   })
@@ -73,7 +79,7 @@ export async function runPreliminaryVerification(input: PreliminaryInput): Promi
     actorId: input.actor.id, actorRole: 'SYSTEM',
     action: worst === 'NON_COMPLIANT' ? 'DOC_FLAGGED' : 'DOC_VERIFIED',
     tenderId: input.tenderId,
-    meta: { submittedDocId: input.submittedDocId, docName: input.docName, status: worst ?? 'UNVERIFIED', phase: 'PRELIMINARY', preliminary: true },
+    meta: { submittedDocId: input.submittedDocId, docName: input.docName, status: docStatus, phase: 'PRELIMINARY', preliminary: true },
   })
 
   return {

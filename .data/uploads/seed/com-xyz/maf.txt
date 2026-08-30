@@ -1,6 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-oemName: GlobalTech OEM Ltd
-resellerName: XYZ Trading Co.
-validTill: 2027-03-31
-BIDSURE-MOCK-EXTRACT {"oemName":"GlobalTech OEM Ltd","resellerName":"XYZ Trading Co.","validTill":"2027-03-31"}
--- end of document --

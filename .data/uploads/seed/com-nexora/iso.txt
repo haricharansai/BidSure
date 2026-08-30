@@ -1,6 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-issuer: ISO Cert India Pvt Ltd
-certNumber: ISO-9001-2024-0815
-validTill: 2027-08-15
-BIDSURE-MOCK-EXTRACT {"issuer":"ISO Cert India Pvt Ltd","certNumber":"ISO-9001-2024-0815","validTill":"2027-08-15"}
--- end of document --

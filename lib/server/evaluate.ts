@@ -101,6 +101,12 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
         actorId: tender.createdById,
         phase: 'AUTHORITATIVE',
         bidOpeningDate: bidOpening,
+        company: {
+          gstin: submission.company.gstin,
+          pan: submission.company.pan,
+          legalName: submission.company.legalName,
+          name: submission.company.name,
+        },
       })
       const checks: EngineCheck[] = [
         ...outcome.checks,
@@ -154,6 +160,7 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
         sizeMb: d.sizeMb,
         validTill: d.validTill?.toISOString() ?? null,
         extracted: (() => { try { return JSON.parse(d.extractedJson) as Record<string, unknown> } catch { return {} } })(),
+        extractionStatus: d.extractionStatus,
         registryChecks: registryChecksByDoc.get(d.docName) ?? [],
       })),
       technicalProfile,
@@ -191,10 +198,17 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
       })
     }
 
-    // Persist submission-level CROSS_DOC checks (triangulation + forensic flags).
-    const crossDocRows: Array<{ checkId: string; status: string; note: string }> = []
+    // Persist submission-level CROSS_DOC checks (triangulation + forensic flags)
+    // plus engine-level turnover checks (TURNOVER_ELIGIBILITY /
+    // TURNOVER_DECLARATION_MATCH — plan §23/§24).
+    const engineTurnoverChecks = outcome.verificationChecks.filter(c => c.checkId === 'TURNOVER_ELIGIBILITY' || c.checkId === 'TURNOVER_DECLARATION_MATCH')
+    const turnoverDocId = submission.docs.find(d => d.docName === 'turnover')?.id ?? null
+    const crossDocRows: Array<{ checkId: string; status: string; note: string; stage?: string }> = []
     if (outcome.triangulation.status !== 'UNVERIFIED') {
       crossDocRows.push({ checkId: 'TURNOVER_TRIANGULATION', status: outcome.triangulation.status, note: outcome.triangulation.note })
+    }
+    for (const c of engineTurnoverChecks) {
+      crossDocRows.push({ checkId: c.checkId, status: c.status, note: c.note, stage: c.stage })
     }
     for (const flag of outcome.flags) {
       const checkStatus = flag.severity === 'CRITICAL' ? 'NON_COMPLIANT' : flag.severity === 'WARNING' ? 'WARNING' : 'VERIFIED'
@@ -204,10 +218,10 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
       await prisma.verificationCheck.createMany({
         data: crossDocRows.map(c => ({
           submissionId: submission.id,
-          submittedDocId: null,
+          submittedDocId: c.checkId.startsWith('TURNOVER_') ? turnoverDocId : null,
           docName: c.checkId,
           checkId: c.checkId,
-          stage: 'CROSS_DOC',
+          stage: c.stage ?? 'CROSS_DOC',
           inputJson: '{}', expectedJson: '{}', foundJson: '{}',
           status: c.status, note: c.note, run: 'AUTHORITATIVE', mock: false,
         })),

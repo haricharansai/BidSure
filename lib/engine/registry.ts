@@ -16,7 +16,7 @@ export interface RegistryRecord {
 
 export interface EngineCheck {
   checkId: string
-  stage: 'STRUCTURAL' | 'REGISTRY' | 'CROSS_DOC'
+  stage: 'STRUCTURAL' | 'REGISTRY' | 'CROSS_DOC' | 'ELIGIBILITY'
   docName: string
   inputJson: string
   expectedJson: string
@@ -37,11 +37,13 @@ function registryCheck(
   found: Record<string, unknown>,
   status: DocStatus,
   note: string,
+  mock = true,
+  stage: EngineCheck['stage'] = 'REGISTRY',
 ): EngineCheck {
   return {
-    checkId, stage: 'REGISTRY', docName,
+    checkId, stage, docName,
     inputJson: JSON.stringify(input), expectedJson: JSON.stringify(expected), foundJson: JSON.stringify(found),
-    status, note, mock: true,
+    status, note, mock,
   }
 }
 
@@ -191,4 +193,121 @@ export function crossCheckIncomeTax(docName: string, entry: RegistryRecord | nul
 
 export function isDeadStatus(status: string): boolean {
   return DEAD_STATUSES.includes(status.toUpperCase())
+}
+
+/**
+ * DOC_TYPE_MISMATCH check (plan §14): classified document type vs the tender's
+ * required doc name. `generic` never fires the check. Mismatch is ALWAYS
+ * NEEDS_REVIEW — OCR may have misread, tender naming may differ, or combined
+ * documents may contain multiple certificates (never auto-reject).
+ */
+export function classificationMismatchCheck(
+  requiredDocName: string,
+  classification: { docType: string; confidence: number; evidence: Array<{ pattern: string; excerpt: string }> } | null | undefined,
+): EngineCheck | null {
+  if (!classification) return null
+  const classified = classification.docType
+  if (classified === 'generic' || classified === requiredDocName) return null
+  return {
+    checkId: 'DOC_TYPE_MISMATCH',
+    stage: 'STRUCTURAL',
+    docName: requiredDocName,
+    inputJson: JSON.stringify({ docName: requiredDocName }),
+    expectedJson: JSON.stringify({ docType: requiredDocName }),
+    foundJson: JSON.stringify({ classifiedDocType: classified, confidence: classification.confidence, evidence: classification.evidence.slice(0, 4) }),
+    status: 'NEEDS_REVIEW',
+    note: `Document content classifies as '${classified}' (confidence ${(classification.confidence * 100).toFixed(0)}%) but the tender requires '${requiredDocName}' — OCR misreads, differing naming conventions, or multi-certificate files are possible; officer must confirm the document type`,
+    mock: false,
+  }
+}
+
+/**
+ * Three-way identity chain (plan §20-§21): extracted document values vs the
+ * bidder's registered company profile. The company profile is NOT an
+ * authoritative source (Rule 3) — a mismatch routes to NEEDS_REVIEW for the
+ * officer, never an automatic disqualification. Identity vs the authoritative
+ * registry is covered by the REGISTRY-stage checks above.
+ */
+export interface CompanyIdentityRef {
+  gstin?: string | null
+  pan?: string | null
+  legalName?: string | null
+  name?: string | null
+}
+
+function identityCheck(
+  checkId: string,
+  docName: string,
+  field: string,
+  extracted: string,
+  company: string,
+  status: DocStatus,
+  note: string,
+  similarity?: number,
+): EngineCheck {
+  return registryCheck(
+    docName, checkId,
+    { [field]: extracted },
+    { companyValue: company, ...(similarity != null ? { minSimilarity: 0.85 } : {}) },
+    { extractedValue: extracted, companyValue: company, ...(similarity != null ? { similarity: Math.round(similarity * 100) } : {}) },
+    status, note,
+    false, // company profile is not the authoritative registry
+    'CROSS_DOC',
+  )
+}
+
+/** Identity checks for one document's extracted fields vs the company profile. */
+export function identityChecksFor(docName: string, fields: Record<string, unknown>, company: CompanyIdentityRef): EngineCheck[] {
+  const checks: EngineCheck[] = []
+  if (!company) return checks
+  const extracted = (k: string): string => String(fields[k] ?? '').trim()
+  switch (docName) {
+    case 'gstin': {
+      const g = extracted('gstin')
+      const c = String(company.gstin ?? '').trim().toUpperCase()
+      if (g && c) {
+        const match = g.toUpperCase() === c
+        checks.push(identityCheck(
+          'IDENTITY_GSTIN', docName, 'gstin', g.toUpperCase(), c,
+          match ? 'VERIFIED' : 'NEEDS_REVIEW',
+          match
+            ? 'GSTIN on document matches the bidder company profile'
+            : 'GSTIN on document does NOT match the bidder company profile — officer must resolve the identity conflict',
+        ))
+      }
+      const legalName = extracted('legalName')
+      const companyName = String(company.legalName ?? company.name ?? '').trim()
+      if (legalName && companyName) {
+        const sim = nameSimilarity(legalName, companyName)
+        const match = sim >= 0.85
+        checks.push(identityCheck(
+          'IDENTITY_LEGAL_NAME', docName, 'legalName', legalName, companyName,
+          match ? 'VERIFIED' : 'NEEDS_REVIEW',
+          match
+            ? `Legal name consistent with company profile (${(sim * 100).toFixed(0)}% similarity)`
+            : `Legal name on document differs from company profile (${(sim * 100).toFixed(0)}% similarity < 85%) — officer review required`,
+          sim,
+        ))
+      }
+      break
+    }
+    case 'pan': {
+      const p = extracted('pan')
+      const c = String(company.pan ?? '').trim().toUpperCase()
+      if (p && c) {
+        const match = p.toUpperCase() === c
+        checks.push(identityCheck(
+          'IDENTITY_PAN', docName, 'pan', p.toUpperCase(), c,
+          match ? 'VERIFIED' : 'NEEDS_REVIEW',
+          match
+            ? 'PAN on document matches the bidder company profile'
+            : 'PAN on document does NOT match the bidder company profile — officer must resolve the identity conflict',
+        ))
+      }
+      break
+    }
+    default:
+      break
+  }
+  return checks
 }

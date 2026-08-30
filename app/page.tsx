@@ -18,7 +18,7 @@ import type {
 } from '@/lib/types'
 import type { DocStatus6 } from '@/lib/types'
 
-type View = 'home' | 'about' | 'help' | 'login' | 'dashboard' | 'tenders' | 'tender' | 'evaluation' | 'compliance' | 'documents' | 'reports' | 'audit' | 'my-bids' | 'opportunities' | 'support' | 'workflow' | 'w-tender' | 'w-eval' | 'w-auction' | 'w-create' | 'clarifications' | 'marketplace'
+type View = 'home' | 'about' | 'help' | 'login' | 'dashboard' | 'tenders' | 'tender' | 'evaluation' | 'compliance' | 'documents' | 'reports' | 'audit' | 'my-bids' | 'opportunities' | 'support' | 'workflow' | 'w-tender' | 'w-eval' | 'w-auction' | 'w-create' | 'clarifications' | 'marketplace' | 'privacy' | 'terms' | 'accessibility'
 
 interface SessionContextValue {
   user: SessionUser | null
@@ -27,7 +27,151 @@ interface SessionContextValue {
 }
 
 const SESSION_KEY = 'bidsure.session'
+const VIEW_KEY = 'bidsure.view'
+const TENDER_KEY = 'bidsure.tenderId'
+const BIDDER_KEY = 'bidsure.bidder'
+
+type NavTenderViews = 'tender' | 'evaluation' | 'compliance' | 'w-tender' | 'w-eval' | 'w-auction'
+const TENDER_PARAM_VIEWS: NavTenderViews[] = ['tender', 'evaluation', 'compliance', 'w-tender', 'w-eval', 'w-auction']
+
+function viewToHash(v: View, tenderId?: string | null, bidder?: string | null): string {
+  let hash = `#/${v}`
+  if (tenderId) hash += `/${encodeURIComponent(tenderId)}`
+  if (bidder) hash += `/${encodeURIComponent(bidder)}`
+  return hash
+}
+
+function hashToView(): { view: View; tenderId?: string; bidder?: string } {
+  const raw = window.location.hash || '#/'
+  const path = raw.replace(/^#\/?/, '')
+  if (!path) return { view: 'home' }
+  const segments = path.split('/')
+  const view = decodeURIComponent(segments[0]) as View
+  if (TENDER_PARAM_VIEWS.includes(view as NavTenderViews) && segments.length >= 2) {
+    return {
+      view,
+      tenderId: decodeURIComponent(segments[1]),
+      bidder: segments.length >= 3 ? decodeURIComponent(segments[2]) : undefined,
+    }
+  }
+  return { view }
+}
 const SessionContext = createContext<SessionContextValue>({ user: null, signIn: () => {}, signOut: () => {} })
+
+// ---------------------------------------------------------------------------
+// Toast notifications
+// ---------------------------------------------------------------------------
+type ToastItem = { id: string; variant: ToastVariant; message: string; timeout?: number }
+type ToastVariant = 'success' | 'error' | 'warning' | 'info'
+interface ToastContextValue {
+  toasts: ToastItem[]
+  addToast: (variant: ToastVariant, message: string, timeout?: number) => void
+  removeToast: (id: string) => void
+}
+const ToastContext = createContext<ToastContextValue>({ toasts: [], addToast: () => {}, removeToast: () => {} })
+
+function useToast() {
+  return useContext(ToastContext)
+}
+
+function ToastProvider({ children }: { children: React.ReactNode }) {
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+  const addToast = useCallback((variant: ToastVariant, message: string, timeout = 4000) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    setToasts(prev => [...prev, { id, variant, message, timeout }])
+    if (timeout > 0) {
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), timeout)
+    }
+  }, [])
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+  return (
+    <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
+      {children}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+    </ToastContext.Provider>
+  )
+}
+
+function ToastContainer({ toasts, removeToast }: { toasts: ToastItem[]; removeToast: (id: string) => void }) {
+  if (toasts.length === 0) return null
+  return (
+    <div className="toast-container" role="status" aria-live="polite">
+      {toasts.map(t => {
+        const Icon = t.variant === 'success' ? CheckCircle2 : t.variant === 'error' ? AlertTriangle : t.variant === 'warning' ? AlertTriangle : Info
+        return (
+          <div key={t.id} className={`toast toast-${t.variant}`} role="alert">
+            <Icon size={16} />
+            <span>{t.message}</span>
+            <button type="button" className="icon-button" aria-label="Dismiss" onClick={() => removeToast(t.id)}><X size={14} /></button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Confirmation dialog
+// ---------------------------------------------------------------------------
+function ConfirmDialog({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', variant = 'danger', onConfirm, onCancel }: {
+  title: string; message: string; confirmLabel?: string; cancelLabel?: string; variant?: 'danger' | 'warning'
+  onConfirm: () => void; onCancel: () => void
+}) {
+  return (
+    <Modal title={title} onClose={onCancel} size="sm"
+      footer={<>
+        <button type="button" className="secondary" onClick={onCancel}>{cancelLabel}</button>
+        <button type="button" className={variant === 'danger' ? 'danger-btn' : 'primary'} onClick={onConfirm}>{confirmLabel}</button>
+      </>}>
+      <p>{message}</p>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Empty state component
+// ---------------------------------------------------------------------------
+function EmptyState({ icon, title, description, action }: {
+  icon: React.ReactNode; title: string; description: string; action?: React.ReactNode
+}) {
+  return (
+    <div className="empty-page">
+      <div className="circle-icon" style={{ width: 62, height: 62 }}>{icon}</div>
+      <h2>{title}</h2>
+      <p>{description}</p>
+      {action}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Page transition wrapper
+// ---------------------------------------------------------------------------
+function PageTransition({ children, view }: { children: React.ReactNode; view: string }) {
+  return <div key={view} className="page-transition">{children}</div>
+}
+
+// ---------------------------------------------------------------------------
+// Data freshness indicator
+// ---------------------------------------------------------------------------
+function FreshnessIndicator({ lastUpdated }: { lastUpdated: Date | null }) {
+  if (!lastUpdated) return null
+  const [label, setLabel] = useState('just now')
+  useEffect(() => {
+    const tick = () => {
+      const seconds = Math.floor((Date.now() - lastUpdated.getTime()) / 1000)
+      if (seconds < 10) setLabel('just now')
+      else if (seconds < 60) setLabel(`${seconds}s ago`)
+      else setLabel(`${Math.floor(seconds / 60)}m ago`)
+    }
+    tick()
+    const id = setInterval(tick, 5000)
+    return () => clearInterval(id)
+  }, [lastUpdated])
+  return <span className="freshness"><RefreshCw size={12} /> Updated {label}</span>
+}
 
 function useApi<T>(url: string | null, pollMs?: number) {
   const [data, setData] = useState<T | null>(null)
@@ -184,6 +328,7 @@ function StatusBadge({ status }: { status: Status }) {
 
 function PublicHeader({ view, navigate }: { view: View; navigate: (v: View) => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [fontSize, setFontSize] = useState(100)
   const go = (v: View) => { setMenuOpen(false); navigate(v) }
   useEffect(() => {
     if (!menuOpen) return
@@ -191,8 +336,20 @@ function PublicHeader({ view, navigate }: { view: View; navigate: (v: View) => v
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [menuOpen])
+  const adjustFontSize = useCallback((delta: number) => {
+    setFontSize(prev => {
+      const next = Math.min(150, Math.max(80, prev + delta))
+      document.documentElement.style.fontSize = `${next}%`
+      return next
+    })
+  }, [])
+  const resetFontSize = useCallback(() => {
+    setFontSize(100)
+    document.documentElement.style.fontSize = '100%'
+  }, [])
   return <>
-    <div className="utility"><div><b>Government Procurement</b><span>•</span> Digital Verification Platform</div><div className="utility-links"><span>Skip to main content</span><span>|</span><span>A-</span><span>A</span><span>A+</span><ThemeToggle /><span>English⌄</span></div></div>
+    <div className="utility"><div><b>Government Procurement</b><span>•</span> Digital Verification Platform</div><div className="utility-links"><button type="button" className="text-button" onClick={() => { const el = document.getElementById('main-content'); if (el) el.scrollIntoView({ behavior: 'smooth' }) }}>Skip to main content</button><span>|</span><button type="button" className="text-button" onClick={() => adjustFontSize(-10)} aria-label="Decrease font size">A-</button><button type="button" className="text-button" onClick={resetFontSize} aria-label="Reset font size">A</button><button type="button" className="text-button" onClick={() => adjustFontSize(10)} aria-label="Increase font size">A+</button>          <ThemeToggle />
+        </div></div>
     <header className="public-header">
       <Logo />
       <nav>
@@ -202,8 +359,7 @@ function PublicHeader({ view, navigate }: { view: View; navigate: (v: View) => v
         <button className={view === 'help' ? 'active' : ''} aria-current={view === 'help' ? 'page' : undefined} onClick={() => navigate('help')}>Help</button>
       </nav>
       <div className="header-actions">
-        <button className="icon-button" aria-label="Profile"><UserRound size={19} /></button>
-        <button className="language">◎ &nbsp; English⌄</button>
+        <button className="icon-button" aria-label="Profile" onClick={() => navigate('login')}><UserRound size={19} /></button>
         <button className="primary small" onClick={() => navigate('login')}><LockKeyhole size={16} /> Login</button>
       </div>
       <button className="mobile-menu" aria-label="Menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(o => !o)}><Menu /></button>
@@ -220,16 +376,16 @@ function PublicHeader({ view, navigate }: { view: View; navigate: (v: View) => v
   </>
 }
 
-function PublicFooter() { return <footer className="public-footer"><div><Logo compact /><p>© 2026 BidSure. All rights reserved.</p></div><div className="footer-links"><span>About</span><span>Help</span><span>Accessibility</span><span>Privacy</span><span>Terms</span></div><p>For authorized government procurement users</p></footer> }
+function PublicFooter({ navigate }: { navigate: (v: View) => void }) { return <footer className="public-footer"><div><Logo compact /><p>© 2026 BidSure. All rights reserved.</p></div><div className="footer-links"><button type="button" onClick={() => navigate('about')}>About</button><button type="button" onClick={() => navigate('help')}>Help</button><button type="button" onClick={() => navigate('accessibility')}>Accessibility</button><button type="button" onClick={() => navigate('privacy')}>Privacy</button><button type="button" onClick={() => navigate('terms')}>Terms</button></div><p>For authorized government procurement users</p></footer> }
 
 function Home({ navigate }: { navigate: (v: View) => void }) {
-  return <><section className="hero"><div className="hero-copy"><p className="eyebrow">DIGITAL PROCUREMENT ASSURANCE</p><h1>Simplifying Bid<br /><em>Compliance Verification</em></h1><p className="lede">An integrated platform for verifying bidder credentials, documents and tender requirements through transparent, evidence-based compliance checks.</p><div className="button-row"><button className="primary relative group" onClick={() => navigate('login')}>
+  return <><section className="hero"><div className="hero-copy"><p className="eyebrow">DIGITAL PROCUREMENT ASSURANCE</p><h1>Simplifying Bid<br /><em>Compliance Verification</em></h1><p className="lede">An integrated platform for verifying bidder credentials, documents and tender requirements through transparent, evidence-based compliance checks.</p><div className="button-row"><button type="button" className="primary hero-login" onClick={() => navigate('login')}>
 <LockKeyhole size={18} /> Login
-<span className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-40 rounded-md bg-navy px-3 py-2 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
-<span className="block">Officer&apos;s Login</span>
-<span className="block mt-1">Seller&apos;s Login</span>
+<span className="hero-tooltip">
+<span>Officer&apos;s Login</span>
+<span>Seller&apos;s Login</span>
 </span>
-</button><button className="secondary" onClick={() => navigate('about')}><span className="play">▶</span> How It Works</button></div><div className="hero-trust"><div><ShieldCheck size={16} /> Government-grade security</div><div><FileCheck2 size={16} /> Evidence-based checks</div><div><History size={16} /> Full audit trail</div></div></div><ProcessGraphic /></section><section className="pillars"><h2>One platform for structured bid verification</h2><div className="pillar-grid"><Pillar icon={<FileSearch />} title="Requirement Analysis" text="Identify eligibility and compliance requirements from tender documents." /><Pillar icon={<FileCheck2 />} title="Bid Verification" text="Verify bidder information and submitted documents against available authorized verification sources." /><Pillar icon={<ShieldCheck />} title="Evidence-Based Review" text="Highlight missing information, inconsistencies and exceptions for procurement officers." /></div></section><section className="capabilities"><h2>Built for transparent procurement verification</h2><div className="cap-grid">{([
+</button><button type="button" className="secondary" onClick={() => navigate('about')}><span className="play">▶</span> How It Works</button></div><div className="hero-trust"><div><ShieldCheck size={16} /> Government-grade security</div><div><FileCheck2 size={16} /> Evidence-based checks</div><div><History size={16} /> Full audit trail</div></div></div><ProcessGraphic /></section><section className="pillars"><h2>One platform for structured bid verification</h2><div className="pillar-grid"><Pillar icon={<FileSearch />} title="Requirement Analysis" text="Identify eligibility and compliance requirements from tender documents." /><Pillar icon={<FileCheck2 />} title="Bid Verification" text="Verify bidder information and submitted documents against available authorized verification sources." /><Pillar icon={<ShieldCheck />} title="Evidence-Based Review" text="Highlight missing information, inconsistencies and exceptions for procurement officers." /></div></section><section className="capabilities"><h2>Built for transparent procurement verification</h2><div className="cap-grid">{([
     [<BadgeCheck />, 'Bidder identity & registration verification'],
     [<FileCheck2 />, 'Document completeness and consistency'],
     [<Wallet />, 'Financial & experience eligibility'],
@@ -398,6 +554,7 @@ function AppShell({ view, navigate, children }: { view: View; navigate: (v: View
     documents: 'Documents', reports: 'Reports', audit: 'Audit explorer',
     'my-bids': 'My bids', opportunities: 'Opportunities', support: 'Support',
     workflow: 'GeM workflow', 'w-tender': 'Workflow tender', 'w-eval': 'Evaluation & award',
+    privacy: 'Privacy Policy', terms: 'Terms of Service', accessibility: 'Accessibility',
     'w-auction': 'Live auction', 'w-create': 'Create tender', clarifications: 'Clarifications',
     marketplace: 'GeM marketplace', about: 'About', help: 'Help',
   }
@@ -476,6 +633,7 @@ function Stat({ label, value, change, icon, warn, danger, onClick }: { label: st
 }
 
 function Bars({ points }: { points: { label: string; value: number }[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const max = Math.max(...points.map(p => p.value), 1)
   const niceMax = Math.max(10, Math.ceil(max / 10) * 10)
   const avg = points.length ? Math.round(points.reduce((s, p) => s + p.value, 0) / points.length) : 0
@@ -487,8 +645,15 @@ function Bars({ points }: { points: { label: string; value: number }[] }) {
         <div className="avg" style={{ bottom: `${(avg / niceMax) * 100}%` }} title={`Average ${avg}`} />
         <div className="bars">
           {points.map((p, i) => (
-            <div key={p.label} title={`${p.label}: ${p.value}`}>
+            <div key={p.label} onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}>
               <span className={i === points.length - 1 ? 'is-latest' : ''} style={{ height: `${(p.value / niceMax) * 100}%` }}><b>{p.value}</b></span>
+              {hoveredIdx === i && (
+                <div className="chart-tooltip" role="tooltip">
+                  <b>{p.label}</b>
+                  <span>{p.value} event{p.value !== 1 ? 's' : ''}</span>
+                  <span className="chart-tooltip-pct">{avg > 0 ? `${Math.round((p.value / avg) * 100)}% of avg` : '—'}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -497,6 +662,41 @@ function Bars({ points }: { points: { label: string; value: number }[] }) {
       <div className="chart-legend"><span><i className="bar" /> Value</span><span><i className="avg" /> Average ({avg})</span></div>
     </div>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts hook
+// ---------------------------------------------------------------------------
+function useKeyboardShortcuts(navigate: (v: View, opts?: NavigateOptions) => void) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't fire when typing in inputs
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return
+      // g + <key> navigation shortcuts
+      if (e.key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const onGKey = (e2: KeyboardEvent) => {
+          document.removeEventListener('keydown', onGKey)
+          if (e2.key === 'd') navigate('dashboard')
+          else if (e2.key === 't') navigate('tenders')
+          else if (e2.key === 'e') navigate('evaluation')
+          else if (e2.key === 'c') navigate('compliance')
+          else if (e2.key === 'r') navigate('reports')
+          else if (e2.key === 'a') navigate('audit')
+        }
+        document.addEventListener('keydown', onGKey, { once: true })
+        setTimeout(() => document.removeEventListener('keydown', onGKey), 800)
+        return
+      }
+      // ? for help
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        navigate('help')
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [navigate])
 }
 
 function AttentionList({ items, onSelect }: { items: AttentionItem[]; onSelect?: () => void }) {
@@ -541,9 +741,42 @@ function NotificationsBell({ navigate }: { navigate: (v: View, o?: NavigateOptio
   )
 }
 
-function PageFrame({ title, subtitle, children, role = 'officer', actions, eyebrow }: {title:string;subtitle:string;children:React.ReactNode;role?:SessionUser['type'];actions?:React.ReactNode;eyebrow?:string}) { return <div className="page-content"><div className="page-title"><div><p className="eyebrow">{eyebrow ?? (role === 'seller' ? 'SELLER WORKSPACE' : 'OFFICER WORKSPACE')}</p><h1>{title}</h1><p>{subtitle}</p></div><div className="page-actions">{actions !== undefined ? actions : <button className="primary"><Download size={16} /> Export report</button>}</div></div>{children}</div> }
+function PageFrame({ title, subtitle, children, role = 'officer', actions, eyebrow }: {title:string;subtitle:string;children:React.ReactNode;role?:SessionUser['type'];actions?:React.ReactNode;eyebrow?:string}) { return <div className="page-content"><div className="page-title"><div><p className="eyebrow">{eyebrow ?? (role === 'seller' ? 'SELLER WORKSPACE' : 'OFFICER WORKSPACE')}</p><h1>{title}</h1><p>{subtitle}</p></div><div className="page-actions">{actions}</div></div>{children}</div> }
 
-function TenderTable({ rows, navigate }: { rows: Tender[]; navigate: (v: View, o?: NavigateOptions) => void }) { return <div className="table-wrap"><table><thead><tr><th>Tender reference</th><th>Title</th><th>Deadline</th><th>Bidders</th><th>Status</th><th /></tr></thead><tbody>{rows.map(t => <tr key={t.id} onClick={() => navigate('tender', { tenderId: t.id })}><td><b className="linkish">{t.id}</b><small>{t.agency}</small></td><td>{t.title}</td><td><Clock3 size={14} />{t.deadline}</td><td>{t.biddersCount}</td><td><StatusBadge status={t.status} /></td><td><ChevronRight size={17} /></td></tr>)}</tbody></table></div> }
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\$&')})`, 'gi')
+  const parts = text.split(regex)
+  return <>{parts.map((part, i) => regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part)}</>
+}
+
+function TenderTable({ rows, navigate, query = '' }: { rows: Tender[]; navigate: (v: View, o?: NavigateOptions) => void; query?: string }) {
+  return (
+    <>
+      {/* Desktop table */}
+      <div className="table-wrap">
+        <table><thead><tr><th>Tender reference</th><th>Title</th><th>Deadline</th><th>Bidders</th><th>Status</th><th /></tr></thead><tbody>{rows.map(t => <tr key={t.id} onClick={() => navigate('tender', { tenderId: t.id })}><td><b className="linkish">{t.id}</b><small>{t.agency}</small></td><td><Highlight text={t.title} query={query} /></td><td><Clock3 size={14} />{t.deadline}</td><td>{t.biddersCount}</td><td><StatusBadge status={t.status} /></td><td><ChevronRight size={17} /></td></tr>)}</tbody></table>
+      </div>
+      {/* Mobile card view */}
+      <div className="mobile-cards">
+        {rows.map(t => (
+          <button key={t.id} className="mobile-card" onClick={() => navigate('tender', { tenderId: t.id })}>
+            <div className="mobile-card-head">
+              <b className="linkish">{t.id}</b>
+              <StatusBadge status={t.status} />
+            </div>
+            <p className="mobile-card-title"><Highlight text={t.title} query={query} /></p>
+            <div className="mobile-card-meta">
+              <span><Clock3 size={12} /> {t.deadline}</span>
+              <span><Users size={12} /> {t.biddersCount} bidders</span>
+            </div>
+            <div className="mobile-card-footer"><small>{t.agency}</small><ChevronRight size={16} /></div>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
 
 function BidderTable({ navigate, rows }: {navigate:(v:View,o?:NavigateOptions)=>void;rows:Bidder[]}) { return <div className="table-wrap"><table><thead><tr><th>Bidder</th><th>Registration</th><th>Documents</th><th>Risk</th><th>Status</th><th /></tr></thead><tbody>{rows.map(b=><tr key={b.name} onClick={()=>navigate('compliance', { bidder: b.name })}><td><b>{b.name}</b></td><td>{b.reg}</td><td>{b.docsSubmitted} / {b.docsTotal}</td><td><span className={`risk risk-${b.risk.toLowerCase()}`}>{b.risk}</span></td><td><StatusBadge status={b.status}/></td><td><ChevronRight size={17}/></td></tr>)}</tbody></table></div> }
 
@@ -553,7 +786,7 @@ function OfficerDashboard({ navigate, userId }: { navigate: (v: View, o?: Naviga
   if (error) return <ErrorPanel message={error} onRetry={retry} />
   if (!data) return LoadingPanel()
   const statTarget = (label: string): View => label.startsWith('Active') ? 'tenders' : label.startsWith('Bids') ? 'evaluation' : label.startsWith('Exceptions') ? 'compliance' : 'documents'
-  return <PageFrame title={`Good morning, ${data.firstName}`} subtitle="Here is what needs your attention today." actions={<><button className="secondary"><Download size={16} /> Export</button><button className="primary" onClick={() => navigate('tenders')}><FileText size={16} /> Review tenders</button></>}>
+  return <PageFrame title={`Good morning, ${data.firstName}`} subtitle="Here is what needs your attention today." actions={<button className="primary" onClick={() => navigate('tenders')}><FileText size={16} /> Review tenders</button>}>
     <div className="stats">
       {data.stats.map(s => <Stat key={s.label} label={s.label} value={s.value} change={s.change} icon={s.label.startsWith('Bids') ? <ClipboardCheck /> : s.label.startsWith('Exceptions') ? <ShieldCheck /> : s.label.startsWith('Documents') ? <BadgeCheck /> : <FileText />} warn={s.tone === 'warn'} danger={s.tone === 'danger'} onClick={() => navigate(statTarget(s.label))} />)}
     </div>
@@ -580,7 +813,7 @@ function SellerDashboard({ navigate, userId }: { navigate: (v: View, o?: Navigat
   if (error) return <ErrorPanel message={error} onRetry={retry} />
   if (!data) return LoadingPanel()
   const statTarget = (label: string): View => label.startsWith('Open') ? 'opportunities' : label.startsWith('Documents') ? 'documents' : 'my-bids'
-  return <PageFrame title={`Welcome back, ${data.companyName}`} subtitle="Track your bids and discover new opportunities." role="seller" actions={<><button className="secondary"><Download size={16} /> Export</button><button className="primary" onClick={() => navigate('opportunities')}><Search size={16} /> Find opportunities</button></>}>
+  return <PageFrame title={`Welcome back, ${data.companyName}`} subtitle="Track your bids and discover new opportunities." role="seller" actions={<button className="primary" onClick={() => navigate('opportunities')}><Search size={16} /> Find opportunities</button>}>
     <div className="stats">
       {data.stats.map(s => <Stat key={s.label} label={s.label} value={s.value} change={s.change} icon={s.label.startsWith('Win rate') ? <BarChart3 /> : s.label.startsWith('Documents') ? <BadgeCheck /> : s.label.startsWith('Open opportunities') ? <Search /> : <FileText />} warn={s.tone === 'warn'} danger={s.tone === 'danger'} onClick={() => navigate(statTarget(s.label))} />)}
     </div>
@@ -974,7 +1207,7 @@ function Tenders({ navigate, userId }: { navigate: (v: View, o?: NavigateOptions
             </div>
           ) : (
             <>
-              <TenderTable rows={pageRows} navigate={navigate} />
+              <TenderTable rows={pageRows} navigate={navigate} query={query} />
               {filtered.length > TENDERS_PAGE_SIZE && (
                 <div className="pagination">
                   <span className="pg-info">
@@ -1008,7 +1241,7 @@ function TenderDetail({ navigate, userId, tenderId }: { navigate: (v: View, o?: 
   if (!data) return LoadingPanel()
   const { tender, bidders } = data
   return <PageFrame title={tender.title} subtitle={`${tender.id} · ${tender.agency}`} actions={null}>
-    <div className="detail-actions"><StatusBadge status={tender.status} /><button className="secondary"><Download size={16}/> Download tender pack</button><button className="primary" onClick={() => navigate('evaluation', { tenderId: tender.id })}><ClipboardCheck size={16}/> Start bid evaluation</button></div>
+    <div className="detail-actions"><StatusBadge status={tender.status} /><button className="primary" onClick={() => navigate('evaluation', { tenderId: tender.id })}><ClipboardCheck size={16}/> Start bid evaluation</button></div>
     <div className="detail-grid">
       <section className="panel"><h2>Tender overview</h2><div className="detail-list">
         <div><span>Published</span><b>{tender.published}</b></div>
@@ -1255,6 +1488,9 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [step, setStep] = useState(1)
+  const formRef = useRef<HTMLFormElement | null>(null)
+  const STEP_LABELS = ['Details', 'Deadlines', 'Eligibility', 'Documents', 'Review']
   const emdBlocked = Number(valueCr) <= 0.05
   // Officer-configurable required documents (plan §9): catalogue palette + custom rows.
   const [docs, setDocs] = useState<DocBuilderRow[]>(() => [
@@ -1282,6 +1518,13 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
     e.preventDefault()
     setError(null); setBusy(true)
     const f = new FormData(e.currentTarget)
+    const fail = (message: string, stepTo: number) => { setError(message); setStep(stepTo); setBusy(false) }
+    // Explicit required-field validation (form is noValidate): empty fields on
+    // hidden steps get a visible error and a jump to the offending step.
+    if (!String(f.get('title') || '').trim()) return fail('Tender title is required (Details, step 1)', 1)
+    if (!String(f.get('agency') || '').trim()) return fail('Agency is required (Details, step 1)', 1)
+    if (!Number(valueCr) || Number(valueCr) <= 0) return fail('Estimated value (₹ Cr) is required (Details, step 1)', 1)
+    if (!Number(f.get('submissionMinutes')) || Number(f.get('submissionMinutes')) < 1) return fail('Submission window is required (Deadlines, step 2)', 2)
     const eligibility: { key: string; label: string; value: number }[] = []
     const turnover = String(f.get('minTurnoverCr') || '')
     const experience = String(f.get('minYearsExperience') || '')
@@ -1349,10 +1592,34 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
     </PageFrame>
   }
 
+  // Advance only when the current step's fields are valid — the form keeps all
+  // steps mounted, so reportValidity checks everything, including the required
+  // fields of earlier steps the user must not skip.
+  const nextStep = () => {
+    if (formRef.current && !formRef.current.reportValidity()) return
+    setStep(s => Math.min(4, s + 1))
+  }
+  const prevStep = () => setStep(s => Math.max(1, s - 1))
+
   return <PageFrame title="Create tender" subtitle="GeM-portal-verified rules are enforced: EMD only above ₹5 L, bid validity 15–180 days." actions={null}>
     {error && <Alert variant="danger">{error}</Alert>}
-    <form onSubmit={submit}>
-      <div className="detail-grid">
+    {/* Step progress indicator */}
+    <div className="step-progress">
+      {STEP_LABELS.map((label, i) => (
+        <div key={label} className={`step-item ${step > i + 1 ? 'completed' : step === i + 1 ? 'active' : ''}`}>
+          <div className="step-circle">{step > i + 1 ? <Check size={14} /> : i + 1}</div>
+          <span className="step-label">{label}</span>
+        </div>
+      ))}
+      <div className="step-track"><div className="step-fill" style={{ width: `${((step - 1) / (STEP_LABELS.length - 1)) * 100}%` }} /></div>
+    </div>
+    <form ref={formRef} onSubmit={submit} noValidate>
+      {/* All steps stay mounted (hidden when inactive) so the final submit
+          sees every step's FormData — conditionally unmounting steps emptied
+          FormData for anything except the last step ("Title is required").
+          Validation is explicit (noValidate) so empty hidden fields surface a
+          visible error + step jump instead of a silent browser block. */}
+      <div hidden={step !== 1}>
         <section className="panel"><h2>Tender details</h2>
           <Field label="Title" type="text" name="title" placeholder="e.g. Supply of Computer Systems" required />
           <Field label="Agency" type="text" name="agency" defaultValue="Ministry of Digital Transformation" required />
@@ -1362,16 +1629,18 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
             </select></span>
           </label>
           <div className="form-grid-2">
-            <Field label="Category" type="text" name="category" placeholder="ICT" />
-            <Field label="Location" type="text" name="location" placeholder="New Delhi" />
+            <Field label="Category" type="text" name="category" placeholder="e.g. ICT, INFRA, PHARMA" />
+            <Field label="Location" type="text" name="location" placeholder="e.g. New Delhi" />
           </div>
-          <Field label="Product / scope" type="text" name="product" placeholder="Desktop computer systems" />
+          <Field label="Product / scope" type="text" name="product" placeholder="e.g. Desktop computer systems" />
           <div className="form-grid-3">
-            <Field label="Quantity" type="text" name="quantity" placeholder="1200" />
-            <Field label="Unit" type="text" name="unit" placeholder="units" />
+            <Field label="Quantity" type="text" name="quantity" placeholder="e.g. 1200" />
+            <Field label="Unit" type="text" name="unit" placeholder="e.g. units, lots, kg" />
             <Field label="Estimated value (₹ Cr)" type="number" name="valueCr" step="0.01" min="0" value={valueCr} onChange={e => setValueCr(e.target.value)} required />
           </div>
         </section>
+      </div>
+      <div hidden={step !== 2}>
         <section className="panel"><h2>Deadlines &amp; guarantees</h2>
           <Field label="Submission window (minutes, demo-scaled)" type="number" name="submissionMinutes" min="1" defaultValue={5} required />
           <Field label="Bid validity (days, GeM 15–180)" type="number" name="bidValidityDays" min={15} max={180} defaultValue={30} required />
@@ -1387,7 +1656,7 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
           <Field label="Abnormally-low-bid threshold (% below estimate)" type="number" name="albThresholdPct" min="1" max="90" defaultValue={25} />
         </section>
       </div>
-      <div className="detail-grid">
+      <div hidden={step !== 3}>
         <section className="panel"><h2>Eligibility criteria</h2>
           <p className="eyebrow">Thresholds are checked against seller-declared data</p>
           <div className="form-grid-2">
@@ -1408,6 +1677,7 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
           ))}
         </section>
       </div>
+      <div hidden={step !== 4}>
       <section className="panel"><h2>Required documents</h2>
         <p className="eyebrow">Select from the GeM catalogue or add custom documents. At least one mandatory document is required. Sellers upload real files; the system extracts and verifies them.</p>
         <div className="mini-list">
@@ -1468,9 +1738,17 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
         </div>
         <small style={{ display: 'block', marginTop: 6 }}>Excluded catalogue documents: {DEFAULT_DOC_TEMPLATES.filter(t => !docs.some(d => d.name === t.name)).map(d => d.description).join(', ') || 'none'}.</small>
       </section>
-      <div className="button-row" style={{ justifyContent: 'flex-end' }}>
-        <button type="button" className="secondary" onClick={() => navigate('tenders')}>Cancel</button>
-        <button className="primary" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish tender'}</button>
+      </div>
+      {/* Step navigation */}
+      <div className="button-row" style={{ justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+          <button type="button" className="secondary" onClick={() => navigate('tenders')}>Cancel</button>
+          {step > 1 && <button type="button" className="ghost" onClick={prevStep}><ChevronLeft size={15} /> Back</button>}
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+          {step < 4 && <button type="button" className="primary" onClick={nextStep}>Next <ArrowRight size={15} /></button>}
+          {step === 4 && <button className="primary" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish tender'}</button>}
+        </div>
       </div>
     </form>
   </PageFrame>
@@ -2368,9 +2646,172 @@ function SupportPage({ view, navigate }: { view: View; navigate: (v: View, o?: N
   )
 }
 
+function PrivacyPage({ navigate }: { navigate: (v: View, o?: NavigateOptions) => void }) {
+  const { user } = useContext(SessionContext)
+  return (
+    <PageFrame title="Privacy Policy" subtitle="How BidSure collects, uses, and protects your information." eyebrow="LEGAL" actions={user ? null : <button className="primary" onClick={() => navigate('login')}><LockKeyhole size={16} /> Sign in</button>}>
+      <div className="stack">
+        <section className="panel">
+          <div className="panel-head"><div><h2>Information we collect</h2><p>Details about the data gathered during platform use.</p></div></div>
+          <div className="policy-content">
+            <p>When you use BidSure, we collect information necessary to operate the procurement verification platform:</p>
+            <ul>
+              <li><b>Account information</b> — Name, email address, department or company name, employee ID, and role (officer or seller).</li>
+              <li><b>Tender and bid data</b> — Documents uploaded for verification, compliance check results, and evaluation records.</li>
+              <li><b>Activity logs</b> — Actions performed on the platform, timestamps, and audit trail entries for accountability.</li>
+              <li><b>Technical data</b> — Session identifiers and browser information for security purposes.</li>
+            </ul>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>How we use your information</h2><p>Purposes for data processing.</p></div></div>
+          <div className="policy-content">
+            <ul>
+              <li><b>Verification</b> — Checking bidder credentials and documents against authorized sources.</li>
+              <li><b>Compliance review</b> — Highlighting exceptions and inconsistencies for procurement officers.</li>
+              <li><b>Audit and accountability</b> — Maintaining a tamper-evident record of all actions for transparency.</li>
+              <li><b>Platform operation</b> — Authentication, session management, and security monitoring.</li>
+            </ul>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Data security</h2><p>How we protect your information.</p></div></div>
+          <div className="policy-content">
+            <p>BidSure implements industry-standard security measures:</p>
+            <ul>
+              <li>End-to-end encrypted sessions</li>
+              <li>Tamper-evident audit trail with cryptographic verification</li>
+              <li>Role-based access control ensuring officers and sellers see only authorized data</li>
+              <li>Regular security assessments and monitoring</li>
+            </ul>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Data retention</h2><p>How long we keep your information.</p></div></div>
+          <div className="policy-content">
+            <p>Tender and bid data is retained in accordance with government procurement regulations. Audit logs are maintained for the legally required period. Account data is retained for the duration of your active engagement with the platform.</p>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="quick-links">
+            <button onClick={() => navigate('terms')}><span><span className="qi"><ScrollText size={16} /></span>Terms of Service</span><ChevronRight size={16} className="arrow" /></button>
+            <button onClick={() => navigate('accessibility')}><span><span className="qi"><Eye size={16} /></span>Accessibility Statement</span><ChevronRight size={16} className="arrow" /></button>
+            <button onClick={() => navigate('about')}><span><span className="qi"><Info size={16} /></span>About BidSure</span><ChevronRight size={16} className="arrow" /></button>
+          </div>
+        </section>
+      </div>
+    </PageFrame>
+  )
+}
+
+function TermsPage({ navigate }: { navigate: (v: View, o?: NavigateOptions) => void }) {
+  const { user } = useContext(SessionContext)
+  return (
+    <PageFrame title="Terms of Service" subtitle="Rules and responsibilities governing use of the BidSure platform." eyebrow="LEGAL" actions={user ? null : <button className="primary" onClick={() => navigate('login')}><LockKeyhole size={16} /> Sign in</button>}>
+      <div className="stack">
+        <section className="panel">
+          <div className="panel-head"><div><h2>Acceptance of terms</h2><p>By using BidSure you agree to these terms.</p></div></div>
+          <div className="policy-content">
+            <p>BidSure is an authorized government procurement verification platform. Access is limited to authorized procurement officers and registered sellers. By signing in, you confirm you are authorized to use this platform and agree to these terms.</p>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>User responsibilities</h2><p>What we expect from platform users.</p></div></div>
+          <div className="policy-content">
+            <ul>
+              <li><b>Officers</b> — Review bids fairly, base decisions on evidence, and maintain confidentiality of tender details.</li>
+              <li><b>Sellers</b> — Submit accurate and genuine documents, respond to clarifications promptly, and comply with tender requirements.</li>
+              <li><b>All users</b> — Protect your credentials, do not share access, and report any suspected misuse immediately.</li>
+            </ul>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Platform use</h2><p>Acceptable use policy.</p></div></div>
+          <div className="policy-content">
+            <ul>
+              <li>Do not attempt to circumvent verification checks or submit falsified documents.</li>
+              <li>Do not access data you are not authorized to view.</li>
+              <li>All actions are logged in a tamper-evident audit trail.</li>
+              <li>Misuse may result in account suspension and referral to appropriate authorities.</li>
+            </ul>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Limitation of liability</h2><p>Disclaimers.</p></div></div>
+          <div className="policy-content">
+            <p>BidSure provides verification data from authorized sources. Final procurement decisions remain the responsibility of the designated procurement officers. The platform facilitates evidence-based review but does not replace official procurement authority.</p>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="quick-links">
+            <button onClick={() => navigate('privacy')}><span><span className="qi"><ShieldCheck size={16} /></span>Privacy Policy</span><ChevronRight size={16} className="arrow" /></button>
+            <button onClick={() => navigate('accessibility')}><span><span className="qi"><Eye size={16} /></span>Accessibility Statement</span><ChevronRight size={16} className="arrow" /></button>
+            <button onClick={() => navigate('about')}><span><span className="qi"><Info size={16} /></span>About BidSure</span><ChevronRight size={16} className="arrow" /></button>
+          </div>
+        </section>
+      </div>
+    </PageFrame>
+  )
+}
+
+function AccessibilityPage({ navigate }: { navigate: (v: View, o?: NavigateOptions) => void }) {
+  const { user } = useContext(SessionContext)
+  return (
+    <PageFrame title="Accessibility Statement" subtitle="Our commitment to making BidSure usable by everyone." eyebrow="LEGAL" actions={user ? null : <button className="primary" onClick={() => navigate('login')}><LockKeyhole size={16} /> Sign in</button>}>
+      <div className="stack">
+        <section className="panel">
+          <div className="panel-head"><div><h2>Our commitment</h2><p>BidSure is designed to be accessible to all users.</p></div></div>
+          <div className="policy-content">
+            <p>BidSure is committed to ensuring digital accessibility for people with disabilities. We continually improve the user experience for everyone and apply the relevant accessibility standards.</p>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Accessibility features</h2><p>Capabilities built into the platform.</p></div></div>
+          <div className="policy-content">
+            <ul>
+              <li><b>Keyboard navigation</b> — All interactive elements are accessible via keyboard. Use Tab to move between controls and Enter or Space to activate.</li>
+              <li><b>Screen reader support</b> — Semantic HTML, ARIA labels, and role attributes ensure content is announced correctly by assistive technologies.</li>
+              <li><b>Colour contrast</b> — Text and interactive elements meet WCAG 2.1 AA contrast ratios.</li>
+              <li><b>Resizable text</b> — Use the font-size controls (A−/A/A+) in the utility bar to adjust text size.</li>
+              <li><b>Focus indicators</b> — Visible focus outlines help keyboard users identify the active element.</li>
+              <li><b>Dark mode</b> — Toggle light/dark theme via the sun/moon button for comfortable viewing.</li>
+            </ul>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Standards compliance</h2><p>The standards we follow.</p></div></div>
+          <div className="policy-content">
+            <p>We aim to conform to WCAG 2.1 Level AA guidelines. Accessibility is tested during development and reviewed periodically.</p>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Feedback</h2><p>Report accessibility issues.</p></div></div>
+          <div className="policy-content">
+            <p>If you encounter any accessibility barriers on BidSure, please contact us:</p>
+            <div className="contact-grid" style={{ marginTop: 'var(--space-4)' }}>
+              <div className="contact-card"><div className="circle-icon"><Mail /></div><span>Email</span><b>accessibility@bidsure.gov</b></div>
+              <div className="contact-card"><div className="circle-icon"><Phone /></div><span>Helpline</span><b>1800-BID-SURE</b></div>
+            </div>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="quick-links">
+            <button onClick={() => navigate('privacy')}><span><span className="qi"><ShieldCheck size={16} /></span>Privacy Policy</span><ChevronRight size={16} className="arrow" /></button>
+            <button onClick={() => navigate('terms')}><span><span className="qi"><ScrollText size={16} /></span>Terms of Service</span><ChevronRight size={16} className="arrow" /></button>
+            <button onClick={() => navigate('about')}><span><span className="qi"><Info size={16} /></span>About BidSure</span><ChevronRight size={16} className="arrow" /></button>
+          </div>
+        </section>
+      </div>
+    </PageFrame>
+  )
+}
+
 function GenericPage({ view, navigate }: { view: View; navigate: (v: View, o?: NavigateOptions) => void }) {
   if (view === 'about') return <AboutPage navigate={navigate} />
   if (view === 'help' || view === 'support') return <SupportPage view={view} navigate={navigate} />
+  if (view === 'privacy') return <PrivacyPage navigate={navigate} />
+  if (view === 'terms') return <TermsPage navigate={navigate} />
+  if (view === 'accessibility') return <AccessibilityPage navigate={navigate} />
   return <OverviewPage view={view} navigate={navigate} />
 }
 
@@ -2385,7 +2826,18 @@ export default function Page() {
     if (opts?.tenderId !== undefined) setSelectedTenderId(opts.tenderId)
     if (opts?.bidder !== undefined) setSelectedBidder(opts.bidder)
     setView(v)
-    window.history.pushState({ view: v }, '', window.location.pathname)
+    try {
+      sessionStorage.setItem(VIEW_KEY, v)
+      if (opts?.tenderId != null) sessionStorage.setItem(TENDER_KEY, opts.tenderId)
+      else sessionStorage.removeItem(TENDER_KEY)
+      if (opts?.bidder != null) sessionStorage.setItem(BIDDER_KEY, opts.bidder)
+      else sessionStorage.removeItem(BIDDER_KEY)
+    } catch {}
+    window.history.pushState(
+      { view: v, tenderId: opts?.tenderId, bidder: opts?.bidder },
+      '',
+      viewToHash(v, opts?.tenderId, opts?.bidder),
+    )
   }, [])
 
   const signIn = useCallback((u: SessionUser) => {
@@ -2397,60 +2849,164 @@ export default function Page() {
     setUser(null)
     storeToken(null)
     sessionStorage.removeItem(SESSION_KEY)
+    try {
+      sessionStorage.removeItem(VIEW_KEY)
+      sessionStorage.removeItem(TENDER_KEY)
+      sessionStorage.removeItem(BIDDER_KEY)
+    } catch {}
+    setSelectedTenderId(null)
+    setSelectedBidder(null)
+    setView('home')
+    window.history.replaceState({ view: 'home' }, '', '#/')
   }, [])
 
   useEffect(() => {
+    // Restore user
     try {
       const raw = sessionStorage.getItem(SESSION_KEY)
       if (raw) setUser(JSON.parse(raw))
     } catch {
       sessionStorage.removeItem(SESSION_KEY)
     }
+
+    // URL hash is the primary source of truth for view state
+    let initView: View = 'home'
+    let initTenderId: string | undefined
+    let initBidder: string | undefined
+
+    if (window.location.hash && window.location.hash !== '#') {
+      const parsed = hashToView()
+      initView = parsed.view
+      initTenderId = parsed.tenderId
+      initBidder = parsed.bidder
+    } else {
+      // Fallback: sessionStorage (handles refresh on pages without hash)
+      try {
+        const sv = sessionStorage.getItem(VIEW_KEY)
+        if (sv) initView = sv as View
+        const st = sessionStorage.getItem(TENDER_KEY)
+        if (st) initTenderId = st
+        const sb = sessionStorage.getItem(BIDDER_KEY)
+        if (sb) initBidder = sb
+      } catch {}
+    }
+
+    setView(initView)
+    if (initTenderId) setSelectedTenderId(initTenderId)
+    if (initBidder) setSelectedBidder(initBidder)
+
+    // Ensure the URL always has a hash (so shared links work)
+    if (!window.location.hash || window.location.hash === '#') {
+      window.history.replaceState(
+        { view: initView, tenderId: initTenderId, bidder: initBidder },
+        '',
+        viewToHash(initView, initTenderId, initBidder),
+      )
+    }
+
     setReady(true)
   }, [])
 
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (e.state && typeof e.state.view === 'string') {
-        setView(e.state.view as View)
-      }
+    const syncFromUrl = () => {
+      const { view: v, tenderId, bidder } = hashToView()
+      setView(v)
+      setSelectedTenderId(tenderId ?? null)
+      setSelectedBidder(bidder ?? null)
+      try {
+        sessionStorage.setItem(VIEW_KEY, v)
+        if (tenderId) sessionStorage.setItem(TENDER_KEY, tenderId)
+        else sessionStorage.removeItem(TENDER_KEY)
+        if (bidder) sessionStorage.setItem(BIDDER_KEY, bidder)
+        else sessionStorage.removeItem(BIDDER_KEY)
+      } catch {}
     }
-    window.history.replaceState({ view: 'home' }, '', window.location.pathname)
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
+    window.addEventListener('popstate', syncFromUrl)
+    window.addEventListener('hashchange', syncFromUrl)
+    return () => {
+      window.removeEventListener('popstate', syncFromUrl)
+      window.removeEventListener('hashchange', syncFromUrl)
+    }
   }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    const publicViews: View[] = ['home', 'about', 'help', 'login', 'privacy', 'terms', 'accessibility']
+    if (!user && !publicViews.includes(view)) {
+      setView('home')
+      try {
+        sessionStorage.setItem(VIEW_KEY, 'home')
+        sessionStorage.removeItem(TENDER_KEY)
+        sessionStorage.removeItem(BIDDER_KEY)
+      } catch {}
+      window.history.replaceState({ view: 'home' }, '', '#/')
+    } else if (user && view === 'home') {
+      setView('dashboard')
+      try {
+        sessionStorage.setItem(VIEW_KEY, 'dashboard')
+        sessionStorage.removeItem(TENDER_KEY)
+        sessionStorage.removeItem(BIDDER_KEY)
+      } catch {}
+      window.history.replaceState({ view: 'dashboard' }, '', '#/dashboard')
+    }
+  }, [ready, user, view])
 
   const sessionValue = useMemo(() => ({ user, signIn, signOut }), [user, signIn, signOut])
 
   if (!ready) return null
 
+  return (
+    <ToastProvider>
+      <PageContent
+        view={view}
+        user={user}
+        sessionValue={sessionValue}
+        navigate={navigate}
+        signIn={signIn}
+        selectedTenderId={selectedTenderId}
+        selectedBidder={selectedBidder}
+      />
+    </ToastProvider>
+  )
+}
+
+function PageContent({ view, user, sessionValue, navigate, signIn, selectedTenderId, selectedBidder }: {
+  view: View; user: SessionUser | null; sessionValue: SessionContextValue
+  navigate: (v: View, opts?: NavigateOptions) => void; signIn: (u: SessionUser) => void
+  selectedTenderId: string | null; selectedBidder: string | null
+}) {
+  useKeyboardShortcuts(navigate)
+
   if (view === 'login') {
     return <SessionContext.Provider value={sessionValue}><Login navigate={navigate} signIn={signIn} /></SessionContext.Provider>
   }
 
-  const officerViews = ['dashboard', 'workflow', 'w-tender', 'w-eval', 'w-auction', 'w-create', 'clarifications', 'tenders', 'tender', 'evaluation', 'compliance', 'documents', 'reports', 'audit', 'about', 'help']
-  const sellerViews = ['dashboard', 'marketplace', 'w-tender', 'w-auction', 'clarifications', 'my-bids', 'opportunities', 'compliance', 'documents', 'tenders', 'tender', 'about', 'help', 'support']
+  const publicPages: View[] = ['privacy', 'terms', 'accessibility']
+  const officerViews = ['dashboard', 'workflow', 'w-tender', 'w-eval', 'w-auction', 'w-create', 'clarifications', 'tenders', 'tender', 'evaluation', 'compliance', 'documents', 'reports', 'audit', 'about', 'help', 'privacy', 'terms', 'accessibility']
+  const sellerViews = ['dashboard', 'marketplace', 'w-tender', 'w-auction', 'clarifications', 'my-bids', 'opportunities', 'compliance', 'documents', 'tenders', 'tender', 'about', 'help', 'support', 'privacy', 'terms', 'accessibility']
 
-  if (user && ['dashboard', 'workflow', 'w-tender', 'w-eval', 'w-auction', 'w-create', 'clarifications', 'marketplace', 'tenders', 'tender', 'evaluation', 'compliance', 'documents', 'reports', 'audit', 'about', 'help', 'my-bids', 'opportunities', 'support'].includes(view)) {
+  if (user && ['dashboard', 'workflow', 'w-tender', 'w-eval', 'w-auction', 'w-create', 'clarifications', 'marketplace', 'tenders', 'tender', 'evaluation', 'compliance', 'documents', 'reports', 'audit', 'about', 'help', 'my-bids', 'opportunities', 'support', 'privacy', 'terms', 'accessibility'].includes(view)) {
     const allowed = user.type === 'officer' ? officerViews : sellerViews
     const guardedView = (allowed.includes(view) ? view : 'dashboard') as View
     return (
       <SessionContext.Provider value={sessionValue}>
         <AppShell view={guardedView} navigate={navigate}>
-          {guardedView === 'dashboard' ? (user.type === 'officer' ? <OfficerDashboard navigate={navigate} userId={user.id} /> : <SellerDashboard navigate={navigate} userId={user.id} />)
-            : guardedView === 'workflow' ? <WorkflowTenders navigate={navigate} />
-            : guardedView === 'w-create' ? <CreateTender navigate={navigate} />
-            : guardedView === 'w-tender' ? <WorkflowTenderDetail navigate={navigate} user={user} tenderId={selectedTenderId} />
-            : guardedView === 'w-eval' ? <EvalDetailV2 navigate={navigate} tenderId={selectedTenderId} />
-            : guardedView === 'w-auction' ? <AuctionRoom tenderId={selectedTenderId} />
-            : guardedView === 'clarifications' ? <ClarificationCenter user={user} />
-            : guardedView === 'marketplace' ? <Marketplace navigate={navigate} />
-            : guardedView === 'audit' && user.type === 'officer' ? <AuditExplorer />
-            : guardedView === 'tenders' ? <Tenders navigate={navigate} userId={user.id} />
-            : guardedView === 'tender' ? <TenderDetail navigate={navigate} userId={user.id} tenderId={selectedTenderId} />
-            : guardedView === 'evaluation' ? <Evaluation navigate={navigate} userId={user.id} tenderId={selectedTenderId} />
-            : guardedView === 'compliance' ? <Compliance navigate={navigate} userId={user.id} tenderId={selectedTenderId} bidder={selectedBidder} />
-            : <GenericPage view={guardedView} navigate={navigate} />}
+          <PageTransition view={guardedView}>
+            {guardedView === 'dashboard' ? (user.type === 'officer' ? <OfficerDashboard navigate={navigate} userId={user.id} /> : <SellerDashboard navigate={navigate} userId={user.id} />)
+              : guardedView === 'workflow' ? <WorkflowTenders navigate={navigate} />
+              : guardedView === 'w-create' ? <CreateTender navigate={navigate} />
+              : guardedView === 'w-tender' ? <WorkflowTenderDetail navigate={navigate} user={user} tenderId={selectedTenderId} />
+              : guardedView === 'w-eval' ? <EvalDetailV2 navigate={navigate} tenderId={selectedTenderId} />
+              : guardedView === 'w-auction' ? <AuctionRoom tenderId={selectedTenderId} />
+              : guardedView === 'clarifications' ? <ClarificationCenter user={user} />
+              : guardedView === 'marketplace' ? <Marketplace navigate={navigate} />
+              : guardedView === 'audit' && user.type === 'officer' ? <AuditExplorer />
+              : guardedView === 'tenders' ? <Tenders navigate={navigate} userId={user.id} />
+              : guardedView === 'tender' ? <TenderDetail navigate={navigate} userId={user.id} tenderId={selectedTenderId} />
+              : guardedView === 'evaluation' ? <Evaluation navigate={navigate} userId={user.id} tenderId={selectedTenderId} />
+              : guardedView === 'compliance' ? <Compliance navigate={navigate} userId={user.id} tenderId={selectedTenderId} bidder={selectedBidder} />
+              : <GenericPage view={guardedView} navigate={navigate} />}
+          </PageTransition>
         </AppShell>
       </SessionContext.Provider>
     )
@@ -2458,11 +3014,13 @@ export default function Page() {
 
   return (
     <SessionContext.Provider value={sessionValue}>
-      <div className="public-site">
-        <PublicHeader view={view} navigate={navigate} />
-        <main>{view === 'home' ? <Home navigate={navigate} /> : <GenericPage view={view} navigate={navigate} />}</main>
-        <PublicFooter />
-      </div>
+      <PageTransition view={view}>
+        <div className="public-site">
+          <PublicHeader view={view} navigate={navigate} />
+          <main id="main-content">{view === 'home' ? <Home navigate={navigate} /> : <GenericPage view={view} navigate={navigate} />}</main>
+          <PublicFooter navigate={navigate} />
+        </div>
+      </PageTransition>
     </SessionContext.Provider>
   )
 }

@@ -1,6 +1,53 @@
 // Typed extracted-document data (plan §5). The verification engine consumes
 // only these structured shapes — never the raw bytes or a specific provider.
 
+/** Source evidence retained for one extracted field (plan §11). */
+export interface FieldEvidence {
+  field: string
+  value: string | number
+  excerpt: string
+  page: number
+  confidence: number
+}
+
+/** Classification evidence: which pattern fired and where (plan §13). */
+export interface ClassificationEvidence {
+  pattern: string
+  excerpt: string
+}
+
+export interface ClassificationResult {
+  docType: DocTypeName
+  confidence: number
+  evidence: ClassificationEvidence[]
+}
+
+export interface ExtractInput {
+  docType: DocTypeName
+  buffer: Buffer
+  mimeType: string
+  fileName: string
+}
+
+/**
+ * Extraction outcome. Rich fields (evidence/pageTexts/classification/
+ * missing/uncertain) are populated by the real OCR provider; the MOCK dev
+ * adapter only fills the core four. `missing` lists required fields that were
+ * not found at all; `uncertain` lists fields whose confidence fell below the
+ * threshold — both route to NEEDS_REVIEW, never to a guessed value.
+ */
+export interface ExtractOutcome {
+  status: 'DONE' | 'FAILED'
+  confidence: number | null
+  fields: Record<string, unknown>
+  error: string | null
+  evidence?: FieldEvidence[]
+  pageTexts?: string[]
+  classification?: ClassificationResult | null
+  missing?: string[]
+  uncertain?: string[]
+}
+
 export type DocTypeName =
   | 'gstin' | 'pan' | 'udyam' | 'turnover' | 'audited' | 'emd' | 'mii'
   | 'iso' | 'experience' | 'startup' | 'maf' | 'board' | 'mca' | 'generic'

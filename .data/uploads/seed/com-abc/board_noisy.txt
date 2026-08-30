@@ -1,4 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-_unparseable: true
-BIDSURE-MOCK-EXTRACT {"_unparseable":true}
--- end of document --

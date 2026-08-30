@@ -1,5 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-localContentPct: 18
-declaredBy: XYZ Trading Co.
-BIDSURE-MOCK-EXTRACT {"localContentPct":18,"declaredBy":"XYZ Trading Co."}
--- end of document --

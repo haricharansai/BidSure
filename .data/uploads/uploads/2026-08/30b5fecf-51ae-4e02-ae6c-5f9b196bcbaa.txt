@@ -1,0 +1,6 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+pan: AAECN1234E
+name: Nexora Systems Private Limited
+entityType: C
+BIDSURE-MOCK-EXTRACT {"pan":"AAECN1234E","name":"Nexora Systems Private Limited","entityType":"C"}
+-- end of document --

@@ -1,484 +1,179 @@
-// Seed: officer + 3 seller personas (incl. the trader-MSME trap persona),
-// 6 legacy tenders (D6 adapter source) and the v2 GeM workflow demo tenders.
-// Run with: node prisma/seed.ts  (Node 24+ native TS stripping)
-// import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { createHash } from 'node:crypto'
+// BidSure seed (idempotent): demo officer + seller (com-nexora) with a real
+// company profile, MOCK government-registry entries, and demo fixture
+// documents under .data/uploads/seed/com-nexora/.
+// Run with: npm run db:seed  (Node 24+ native TS stripping)
+import { createHash } from 'crypto'
+import { mkdir, writeFile } from 'fs/promises'
+import { join } from 'path'
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-function hashPassword(password: string): string {
-  return createHash('sha256').update(`bidsure::${password}`).digest('hex')
-}
+// Checksum-valid per the base-36 Luhn rule in lib/engine/validators.ts.
+const NEXORA_GSTIN = '07AAECN1234E1ZP'
+const NEXORA_PAN = 'AAECN1234E'
+const NEXORA_LEGAL_NAME = 'Nexora Systems Private Limited'
+const NEXORA_TURNOVER_CR = 24.2
+// Fraud demo company (checksum-valid GSTIN via the base-36 Luhn rule).
+const XYZ_GSTIN = '07AABCU9603R1ZT'
+const XYZ_PAN = 'AABCU9603R'
 
-const BASE36 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-
-/** Build a checksum-valid GSTIN from a state code + 10-char PAN + entity code. */
-function gstinFor(stateCode: string, pan: string, entityCode = '1'): string {
-  const body = `${stateCode}${pan}${entityCode}Z`
-  let sum = 0
-  for (let i = 0; i < 14; i++) {
-    const factor = i % 2 === 0 ? 2 : 1
-    const product = BASE36.indexOf(body[i]) * factor
-    sum += Math.floor(product / 36) + (product % 36)
-  }
-  return body + BASE36[(36 - (sum % 36)) % 36]
-}
-
-const personas = [
-  {
-    user: {
-      id: 'usr-officer-001',
-      role: 'OFFICER',
-      email: 'arun.mehta@digitransform.gov.in',
-      password: 'officer123',
-      name: 'Arun Mehta',
-      subtitle: 'Procurement Officer',
-      initials: 'AM',
-      department: 'Ministry of Digital Transformation',
-      employeeId: 'EMP-2024-00142',
+async function seedCompany() {
+  const company = await prisma.company.upsert({
+    where: { id: 'com-nexora' },
+    update: {
+      gstin: NEXORA_GSTIN, pan: NEXORA_PAN, legalName: NEXORA_LEGAL_NAME,
+      turnoverCr: NEXORA_TURNOVER_CR, caTurnoverCr: NEXORA_TURNOVER_CR,
+      gstr3bTotalCr: 23.8, auditedPnlCr: 23.5, netWorthCr: 6.5, yearsExperience: 10,
     },
-    company: null,
-  },
-  {
-    user: {
-      id: 'usr-seller-001',
-      role: 'SELLER',
-      email: 'contact@nexorasystems.com',
-      password: 'seller123',
-      name: 'Nexora Systems',
-      subtitle: 'Registered Seller',
-      initials: 'NX',
-    },
-    company: {
+    create: {
       id: 'com-nexora',
-      name: 'Nexora Systems Pvt. Ltd.',
-      legalName: 'Nexora Systems Private Limited',
-      pan: 'AAECN1234E',
-      cin: 'U72900DL2014PTC401221',
-      turnoverCr: 24,
-      yearsExperience: 11,
-      msme: false,
-      iso: true,
-      caTurnoverCr: 24.2,
+      name: 'Nexora Systems',
+      legalName: NEXORA_LEGAL_NAME,
+      gstin: NEXORA_GSTIN,
+      pan: NEXORA_PAN,
+      turnoverCr: NEXORA_TURNOVER_CR,
+      caTurnoverCr: NEXORA_TURNOVER_CR,
       gstr3bTotalCr: 23.8,
       auditedPnlCr: 23.5,
       netWorthCr: 6.5,
-      miiLocalContentPct: 62,
-      isReseller: false,
-      dscTokenId: 'DSC-NX-4411',
-      directorDins: JSON.stringify(['DIN01234567', 'DIN07654321']),
-    },
-  },
-  {
-    user: {
-      id: 'usr-seller-002',
-      role: 'SELLER',
-      email: 'contact@abctech.in',
-      password: 'seller123',
-      name: 'ABC Technologies',
-      subtitle: 'Registered Seller · MSE',
-      initials: 'AB',
-    },
-    company: {
-      id: 'com-abc',
-      name: 'ABC Technologies Pvt. Ltd.',
-      legalName: 'ABC Technologies Private Limited',
-      pan: 'AAGCA5678F',
-      cin: 'U72200KA2018PTC334455',
-      turnoverCr: 4.5,
-      yearsExperience: 6,
-      msme: true,
-      iso: false,
-      udyamNo: 'UDYAM-07-00-0012345',
-      udyamNicCode: '26',
-      caTurnoverCr: 4.6,
-      gstr3bTotalCr: 4.4,
-      auditedPnlCr: 4.3,
-      netWorthCr: 1.2,
-      miiLocalContentPct: 55,
+      yearsExperience: 10,
+      msme: false,
+      iso: true,
       isReseller: false,
       isStartup: false,
-      dscTokenId: 'DSC-AB-7720',
-      directorDins: JSON.stringify(['DIN09111222']),
+      directorDins: '[]',
     },
-  },
-  {
-    user: {
-      id: 'usr-seller-003',
-      role: 'SELLER',
-      email: 'sales@xyztrading.in',
-      password: 'seller123',
-      name: 'XYZ Trading Co.',
-      subtitle: 'Registered Seller · MSE (Trader)',
-      initials: 'XY',
-    },
-    company: {
-      id: 'com-xyz',
-      name: 'XYZ Trading Co.',
-      legalName: 'XYZ Trading Company',
-      pan: 'AAFCX9012G',
-      cin: 'U51109DL2012PTC998877',
-      turnoverCr: 8,
-      yearsExperience: 4,
-      msme: true,
-      iso: false,
-      udyamNo: 'UDYAM-07-00-0098765',
-      udyamNicCode: '46', // wholesale trade — the trader-MSME EMD trap
-      caTurnoverCr: 9.8,
-      gstr3bTotalCr: 6.1, // 37.7% variance → critical triangulation anomaly
-      auditedPnlCr: 7.2,
-      netWorthCr: -0.4, // negative net worth → deterministic disqualification
-      miiLocalContentPct: 18,
-      isReseller: true,
-      isStartup: false,
-      dscTokenId: 'DSC-XY-9103',
-      directorDins: JSON.stringify(['DIN09334455']),
-    },
-  },
-]
-
-const OFFICER_ID = 'usr-officer-001'
-
-const DEFAULT_DOCS = [
-  { name: 'pan', description: 'Permanent Account Number card', classification: 'MANDATORY', conditionKey: null },
-  { name: 'gstin', description: 'GST registration certificate', classification: 'MANDATORY', conditionKey: null },
-  { name: 'turnover', description: 'CA-certified turnover certificate with UDIN', classification: 'MANDATORY', conditionKey: null },
-  { name: 'audited', description: 'Audited balance sheets — last 3 years', classification: 'MANDATORY', conditionKey: null },
-  { name: 'board', description: 'Board resolution / power of attorney', classification: 'MANDATORY', conditionKey: null },
-  { name: 'emd', description: 'EMD / bid security bank guarantee (required only when EMD applies)', classification: 'CONDITIONAL', conditionKey: 'emd' },
-  { name: 'udyam', description: 'Udyam / MSE registration (claiming MSE preference or EMD exemption)', classification: 'CONDITIONAL', conditionKey: 'msme' },
-  { name: 'startup', description: 'DPIIT startup recognition (claiming turnover/experience waiver)', classification: 'CONDITIONAL', conditionKey: 'startup' },
-  { name: 'maf', description: 'Manufacturer authorization form (dealers/resellers)', classification: 'CONDITIONAL', conditionKey: 'reseller' },
-  { name: 'mii', description: 'Make in India local content declaration (claiming Class-I/II status)', classification: 'CONDITIONAL', conditionKey: 'mii' },
-  { name: 'iso', description: 'ISO certification', classification: 'SUPPORTING', conditionKey: null },
-  { name: 'experience', description: 'Past experience / completion certificates', classification: 'SUPPORTING', conditionKey: null },
-]
-
-// D6: the six legacy tenders from the in-memory compliance demo, mapped into
-// Prisma so the old views and the new workflow list share one source of truth.
-// Terminal stages so tick() never mutates them.
-const LEGACY_TENDERS = [
-  { id: 'GOV/ICT/2026/041', title: 'Supply and installation of secure network infrastructure', agency: 'Ministry of Digital Transformation', type: 'open', category: 'ICT', valueCr: 18.4, published: '2026-08-18T10:00:00+05:30', deadline: '2026-09-12T17:00:00+05:30', stage: 'EVALUATED', emdRequired: true, emdAmountCr: 0.368, awardedToCompanyId: null },
-  { id: 'PWD/INFRA/2026/019', title: 'Construction of regional public health centres', agency: 'Public Works Department', type: 'open', category: 'INFRA', valueCr: 42.8, published: '2026-08-02T10:00:00+05:30', deadline: '2026-09-20T17:00:00+05:30', stage: 'EVALUATED', emdRequired: true, emdAmountCr: 0.856, awardedToCompanyId: null },
-  { id: 'EDU/TECH/2026/008', title: 'Digital classroom equipment and support services', agency: 'Department of Education', type: 'open', category: 'EDU', valueCr: 9.6, published: '2026-07-10T10:00:00+05:30', deadline: '2026-10-05T17:00:00+05:30', stage: 'AWARDED', emdRequired: true, emdAmountCr: 0.192, awardedToCompanyId: 'com-nexora' },
-  { id: 'HEALTH/PHARMA/2026/032', title: 'Annual supply of essential medicines', agency: 'National Health Authority', type: 'limited', category: 'PHARMA', valueCr: 27.2, published: '2026-07-22T10:00:00+05:30', deadline: '2026-09-28T17:00:00+05:30', stage: 'EVALUATED', emdRequired: true, emdAmountCr: 0.544, awardedToCompanyId: null },
-  { id: 'RDS/INFRA/2026/003', title: 'Road maintenance and infrastructure upgrade', agency: 'Road Development Authority', type: 'open', category: 'INFRA', valueCr: 55.3, published: '2026-08-25T10:00:00+05:30', deadline: '2026-10-15T17:00:00+05:30', stage: 'EVALUATED', emdRequired: true, emdAmountCr: 1.106, awardedToCompanyId: null },
-  { id: 'ENV/WASTE/2026/017', title: 'Waste management services contract', agency: 'Environmental Protection Agency', type: 'open', category: 'ENV', valueCr: 12.7, published: '2026-08-12T10:00:00+05:30', deadline: '2026-09-30T17:00:00+05:30', stage: 'EVALUATED', emdRequired: true, emdAmountCr: 0.254, awardedToCompanyId: null },
-]
-
-// Spec-walkthrough demo tenders (§10): an e-reverse auction with EMD + MSE
-// preference, and a small open tender below the ₹5 L EMD cutoff.
-function demoTenders() {
-  const raDeadline = new Date(Date.now() + 5 * 60 * 1000)
-  const openDeadline = new Date(Date.now() + 30 * 60 * 1000)
-  return [
-    {
-      id: 'GOV/ICT/2026/RA01',
-      title: 'Supply of Computer Systems',
-      agency: 'Ministry of Digital Transformation',
-      type: 'e-reverse-auction',
-      category: 'ICT',
-      product: 'Desktop computer systems (Ministry standard configuration)',
-      quantity: '1200',
-      unit: 'units',
-      valueCr: 2,
-      valueLabel: '₹2 Cr',
-      location: 'New Delhi',
-      submissionDeadline: raDeadline,
-      bidOpeningDate: raDeadline,
-      stage: 'PUBLISHED',
-      requirementsJson: JSON.stringify({
-        eligibility: [
-          { key: 'minTurnoverCr', label: 'Average annual turnover (last 3 years)', value: 2 },
-          { key: 'minYearsExperience', label: 'Years in similar supply business', value: 3 },
-          { key: 'netWorthPositive', label: 'Positive net worth', value: 1 },
-          { key: 'miiMinLocalContentPct', label: 'Class-I local content (Make in India)', value: 50 },
-        ],
-        technical: [
-          { key: 'processor', label: 'Processor', expected: 'Intel Core i5 12th Gen or above' },
-          { key: 'ram', label: 'RAM', expected: '16 GB DDR4' },
-          { key: 'os', label: 'Operating system', expected: 'Windows 11 Pro' },
-          { key: 'warranty', label: 'Onsite warranty', expected: '3 years' },
-        ],
-      }),
-      emdRequired: true,
-      emdAmountCr: 0.04,
-      bidValidityDays: 30,
-      msePreference: true,
-      miiMinLocalContentPct: 50,
-      albThresholdPct: 25,
-    },
-    {
-      id: 'GOV/GEN/2026/OP07',
-      title: 'Supply of office consumables and stationery',
-      agency: 'Ministry of Digital Transformation',
-      type: 'open',
-      category: 'GEN',
-      product: 'Office consumables — annual rate contract',
-      quantity: 'Lot',
-      unit: 'lot',
-      valueCr: 0.04,
-      valueLabel: '₹4 L',
-      location: 'New Delhi',
-      submissionDeadline: openDeadline,
-      bidOpeningDate: openDeadline,
-      stage: 'PUBLISHED',
-      requirementsJson: JSON.stringify({
-        eligibility: [
-          { key: 'minTurnoverCr', label: 'Average annual turnover (last 3 years)', value: 0.5 },
-          { key: 'netWorthPositive', label: 'Positive net worth', value: 1 },
-        ],
-        technical: [],
-      }),
-      emdRequired: false, // ≤ ₹5 L ⇒ EMD not applicable (GeM rule)
-      emdAmountCr: null,
-      bidValidityDays: 15,
-      msePreference: true,
-      miiMinLocalContentPct: null,
-      albThresholdPct: 25,
-    },
-  ]
-}
-
-async function seedTender(t: Record<string, unknown>) {
-  const id = String(t.id)
-  const deadline = (t.submissionDeadline ?? t.deadline) as string | Date
-  const deadlineDate = deadline instanceof Date ? deadline : new Date(deadline)
-  const data = {
-    ...t,
-    createdById: OFFICER_ID,
-    corrigendaJson: '[]',
-    requirementsJson: t.requirementsJson ?? JSON.stringify({ eligibility: [], technical: [] }),
-    publishDate: t.published ? new Date(String(t.published)) : new Date(),
-    submissionDeadline: deadlineDate,
-    bidOpeningDate: deadlineDate,
-  } as Parameters<typeof prisma.tender.upsert>[0]['create']
-  delete (data as Record<string, unknown>).deadline
-  delete (data as Record<string, unknown>).published
-  await prisma.tender.upsert({
-    where: { id },
-    update: data,
+  })
+  await prisma.user.upsert({
+    where: { email: 'contact@nexorasystems.com' },
+    update: { companyId: company.id },
     create: {
-      ...data,
-      requiredDocs: {
-        create: DEFAULT_DOCS.map(d => ({ ...d, id: `${id}:${d.name}` })),
-      },
+      id: 'usr-seller-nexora',
+      role: 'SELLER',
+      email: 'contact@nexorasystems.com',
+      password: Buffer.from('bidsure::seller123').toString('hex').length ? sha256('seller123') : '',
+      name: 'Nexora Systems',
+      subtitle: 'Registered Seller',
+      initials: 'NS',
+      companyId: company.id,
     },
   })
 }
 
-// ---------------------------------------------------------------------------
-// MOCK government registries (§4 of the plan) — clearly labeled demo data.
-// Deterministic per-company records; intentionally corrupted entries for the
-// NON-COMPLIANT demo persona (XYZ Trading).
-// ---------------------------------------------------------------------------
-
-interface RegistryRow {
-  registry: string
-  key: string
-  status: string
-  data: Record<string, unknown>
+function sha256(password: string): string {
+  // Mirrors lib/server/auth.ts hashPassword (kept in sync manually).
+  return createHash('sha256').update(`bidsure::${password}`).digest('hex')
 }
 
-function registryRowsForCompany(company: Record<string, unknown>, gstin: string): RegistryRow[] {
-  const legalName = String(company.legalName ?? company.name)
-  const pan = String(company.pan)
-  const isFraud = company.id === 'com-xyz'
-  const rows: RegistryRow[] = [
-    {
-      registry: 'GSTN',
-      key: gstin,
-      status: isFraud ? 'CANCELLED' : 'ACTIVE',
-      data: {
-        legalName: isFraud ? 'XYZ Traders Fraud Enterprises' : legalName,
-        tradeName: String(company.name),
-        registrationDate: '2014-06-12',
-        stateCode: '07',
-        isMock: true,
-      },
+async function seedOfficer() {
+  await prisma.user.upsert({
+    where: { email: 'arun.mehta@digitransform.gov.in' },
+    update: {},
+    create: {
+      id: 'usr-officer-mehta',
+      role: 'OFFICER',
+      email: 'arun.mehta@digitransform.gov.in',
+      password: sha256('officer123'),
+      name: 'Arun Mehta',
+      subtitle: 'Procurement Division',
+      initials: 'AM',
+      department: 'Procurement Division',
+      employeeId: 'EMP-2024-00142',
     },
-    {
-      registry: 'PAN',
-      key: pan,
-      status: isFraud ? 'CANCELLED' : 'ACTIVE',
-      data: {
-        name: isFraud ? 'XYZ Traders Fraud Enterprises' : legalName,
-        entityType: pan[3] ?? 'C',
-        isMock: true,
-      },
-    },
-    {
-      registry: 'INCOME_TAX',
-      key: pan,
-      status: isFraud ? 'NON_FILER' : 'ACTIVE',
-      data: { panStatus: isFraud ? 'CANCELLED' : 'ACTIVE', filedReturns3y: !isFraud, isMock: true },
-    },
-    {
-      registry: 'MCA',
-      key: String(company.cin),
-      status: isFraud ? 'STRIKE_OFF_PENDING' : 'ACTIVE',
-      data: {
-        companyName: legalName,
-        incorporationDate: '2014-06-12',
-        directors: JSON.parse(String(company.directorDins ?? '[]')) as string[],
-        isMock: true,
-      },
-    },
+  })
+}
+
+async function seedRegistry() {
+  const rows: Array<{ registry: string; key: string; status: string; data: Record<string, unknown> }> = [
+    { registry: 'GSTN', key: NEXORA_GSTIN, status: 'ACTIVE', data: { legalName: NEXORA_LEGAL_NAME, tradeName: 'Nexora', stateCode: '07' } },
+    { registry: 'PAN', key: NEXORA_PAN, status: 'ACTIVE', data: { name: NEXORA_LEGAL_NAME, entityType: 'Company' } },
+    { registry: 'INCOME_TAX', key: NEXORA_PAN, status: 'ACTIVE', data: { filedReturns3y: true } },
+    { registry: 'UDYAM', key: 'UDYAM-07-00-0098765', status: 'ACTIVE', data: { enterpriseName: NEXORA_LEGAL_NAME, nicCode: '26201', orgType: 'Small' } },
+    { registry: 'DPIIT', key: 'DPIIT2026NEXORA', status: 'ACTIVE', data: { entityName: NEXORA_LEGAL_NAME } },
+    // Fraud demo (tests/e2e-fraud.mjs): GST record CANCELLED with a different
+    // legal name → deterministic NON_COMPLIANT; PAN name mismatch.
+    { registry: 'GSTN', key: XYZ_GSTIN, status: 'CANCELLED', data: { legalName: 'Fraud Enterprises', stateCode: '07' } },
+    { registry: 'PAN', key: XYZ_PAN, status: 'ACTIVE', data: { name: 'XYZ Trading Private Limited', entityType: 'Company' } },
   ]
-  if (company.msme && company.udyamNo) {
-    rows.push({
-      registry: 'UDYAM',
-      key: String(company.udyamNo),
-      status: 'ACTIVE',
-      data: {
-        enterpriseName: legalName,
-        orgType: 'Proprietorship/MSME',
-        nicCode: String(company.udyamNicCode ?? ''),
-        registrationDate: '2020-07-15',
-        isMock: true,
-      },
+  for (const r of rows) {
+    await prisma.mockRegistryEntry.upsert({
+      where: { registry_key: { registry: r.registry, key: r.key } },
+      update: { status: r.status, dataJson: JSON.stringify(r.data) },
+      create: { registry: r.registry, key: r.key, status: r.status, dataJson: JSON.stringify(r.data) },
     })
   }
-  return rows
 }
 
-async function seedRegistries(): Promise<void> {
-  let count = 0
-  for (const p of personas) {
-    if (!p.company) continue
-    const company = p.company as Record<string, unknown>
-    const gstin = gstinFor('07', String(company.pan))
-    for (const row of registryRowsForCompany(company, gstin)) {
-      await prisma.mockRegistryEntry.upsert({
-        where: { registry_key: { registry: row.registry, key: row.key } },
-        update: { status: row.status, dataJson: JSON.stringify(row.data) },
-        create: { registry: row.registry, key: row.key, status: row.status, dataJson: JSON.stringify(row.data) },
-      })
-      count++
-    }
-  }
-  console.log(`Mock registries seeded: ${count} MOCK/DEMO entries.`)
-}
-
-// ---------------------------------------------------------------------------
-// Demo document artifacts (deterministic MOCK extraction convention).
-// Each file embeds a machine-readable header the MockExtractionProvider parses:
-//   BIDSURE-MOCK-EXTRACT {json}
-// Files live in .data/uploads/seed/<companyId>/ for manual upload during the
-// demo; extraction output is identical on every run (no randomness).
-// ---------------------------------------------------------------------------
-
-function mockDocText(fields: Record<string, unknown>): string {
-  const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v}`)
-  return [
-    '== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==',
-    ...lines,
-    `BIDSURE-MOCK-EXTRACT ${JSON.stringify(fields)}`,
-    '-- end of document --',
-  ].join('\n')
-}
-
-function demoDocsForCompany(company: Record<string, unknown>, gstin: string): Record<string, Record<string, unknown>> {
-  const legalName = String(company.legalName ?? company.name)
-  const docs: Record<string, Record<string, unknown>> = {
-    pan: { pan: company.pan, name: legalName, entityType: String(company.pan)[3] },
-    gstin: { gstin, legalName, tradeName: company.name, registrationDate: '2014-06-12', status: 'ACTIVE' },
-    turnover: {
-      udin: '251234567890123456',
-      certDate: '2026-07-20',
-      caName: 'CA R. Sharma, FCA',
-      membershipNo: 'FRN-024511',
-      turnoverCr: company.caTurnoverCr,
-      fy: '2025-26',
+async function seedFraudDemo() {
+  const company = await prisma.company.upsert({
+    where: { id: 'com-xyz' },
+    update: {
+      gstin: XYZ_GSTIN, pan: XYZ_PAN, legalName: 'XYZ Trading Private Limited',
+      turnoverCr: 5, caTurnoverCr: 4.6, yearsExperience: 3,
     },
-    audited: {
-      fy: '2025-26',
-      auditedPnlCr: company.auditedPnlCr,
-      netWorthCr: company.netWorthCr,
-      auditorName: 'Sharma & Associates',
+    create: {
+      id: 'com-xyz',
+      name: 'XYZ Trading',
+      legalName: 'XYZ Trading Private Limited',
+      gstin: XYZ_GSTIN,
+      pan: XYZ_PAN,
+      turnoverCr: 5,
+      caTurnoverCr: 4.6,
+      gstr3bTotalCr: 4.2,
+      auditedPnlCr: 4.0,
+      netWorthCr: 1.5,
+      yearsExperience: 3,
+      msme: false,
+      iso: false,
+      isReseller: false,
+      isStartup: false,
+      directorDins: '[]',
     },
-    board: { signerName: 'Director — Board of ' + company.name, designation: 'Director', date: '2026-08-01' },
-    mii: { localContentPct: company.miiLocalContentPct, declaredBy: company.name },
-    experience: { issuer: 'Govt e-Marketplace past contracts', validTill: '2027-12-31' },
-  }
-  if (company.udyamNo) {
-    docs.udyam = {
-      udyamNo: company.udyamNo,
-      enterpriseName: legalName,
-      orgType: 'MSME',
-      nicCode: company.udyamNicCode,
-      registrationDate: '2020-07-15',
-      status: 'ACTIVE',
-    }
-  }
-  if (company.isReseller) {
-    docs.maf = { oemName: 'GlobalTech OEM Ltd', resellerName: company.name, validTill: '2027-03-31' }
-  }
-  if (company.iso) {
-    docs.iso = { issuer: 'ISO Cert India Pvt Ltd', certNumber: 'ISO-9001-2024-0815', validTill: '2027-08-15' }
-  }
-  // NEEDS-REVIEW scenario artifact: unparseable document (no extract block).
-  docs.board_noisy = { _unparseable: true }
-  return docs
+  })
+  await prisma.user.upsert({
+    where: { email: 'sales@xyztrading.in' },
+    update: { companyId: company.id },
+    create: {
+      id: 'usr-seller-xyz',
+      role: 'SELLER',
+      email: 'sales@xyztrading.in',
+      password: sha256('seller123'),
+      name: 'XYZ Trading',
+      subtitle: 'Registered Seller',
+      initials: 'XT',
+      companyId: company.id,
+    },
+  })
+  const dir = join(process.cwd(), '.data', 'uploads', 'seed', 'com-xyz')
+  await mkdir(dir, { recursive: true })
+  const gst = `== SIMULATED GOVERNMENT DOCUMENT ==\nGoods and Services Tax Registration Certificate\nGSTIN: ${XYZ_GSTIN}\nLegal Name: XYZ Trading Private Limited\nBIDSURE-MOCK-EXTRACT ${JSON.stringify({ gstin: XYZ_GSTIN.toLowerCase(), legalName: 'XYZ Trading Private Limited', tradeName: 'XYZ Trading' })}\n-- end --`
+  const pan = `== SIMULATED GOVERNMENT DOCUMENT ==\nIncome Tax Department — Permanent Account Number Card\nName: XYZ Trading Private Limited\nPAN: ${XYZ_PAN}\nBIDSURE-MOCK-EXTRACT ${JSON.stringify({ pan: XYZ_PAN.toLowerCase(), name: 'XYZ Trading Private Limited', entityType: 'Company' })}\n-- end --`
+  await writeFile(join(dir, 'gstin.txt'), gst, 'utf-8')
+  await writeFile(join(dir, 'pan.txt'), pan, 'utf-8')
 }
 
-function isDemoSeedCompany(companyId: string): boolean {
-  return companyId === 'com-nexora' || companyId === 'com-abc' || companyId === 'com-xyz'
-}
-
-async function seedDemoDocs(): Promise<void> {
-  let written = 0
-  for (const p of personas) {
-    if (!p.company || !isDemoSeedCompany(p.company.id)) continue
-    const company = p.company as Record<string, unknown>
-    const gstin = gstinFor('07', String(company.pan))
-    const dir = join(process.cwd(), '.data', 'uploads', 'seed', p.company.id)
-    mkdirSync(dir, { recursive: true })
-    for (const [docName, fields] of Object.entries(demoDocsForCompany(company, gstin))) {
-      const text = mockDocText(fields)
-      const sha = createHash('sha256').update(text).digest('hex')
-      writeFileSync(join(dir, `${docName}.txt`), text)
-      written++
-      void sha
-    }
-  }
-  console.log(`Demo documents written: ${written} deterministic MOCK artifacts in .data/uploads/seed/.`)
+async function seedFixtureDocs() {
+  const dir = join(process.cwd(), '.data', 'uploads', 'seed', 'com-nexora')
+  await mkdir(dir, { recursive: true })
+  const gst = `== SIMULATED GOVERNMENT DOCUMENT ==\nGoods and Services Tax Registration Certificate\nGSTIN: ${NEXORA_GSTIN}\nLegal Name: ${NEXORA_LEGAL_NAME}\nTrade Name: Nexora\nBIDSURE-MOCK-EXTRACT ${JSON.stringify({ gstin: NEXORA_GSTIN.toLowerCase(), legalName: NEXORA_LEGAL_NAME, tradeName: 'Nexora' })}\n-- end --`
+  const pan = `== SIMULATED GOVERNMENT DOCUMENT ==\nIncome Tax Department — Permanent Account Number Card\nName: ${NEXORA_LEGAL_NAME}\nPAN: ${NEXORA_PAN}\nBIDSURE-MOCK-EXTRACT ${JSON.stringify({ pan: NEXORA_PAN.toLowerCase(), name: NEXORA_LEGAL_NAME, entityType: 'Company' })}\n-- end --`
+  const turnover = `== SIMULATED GOVERNMENT DOCUMENT ==\nChartered Accountant Certificate — Turnover\nUDIN: 261234567890123456\nBIDSURE-MOCK-EXTRACT ${JSON.stringify({ udin: '261234567890123456', certDate: '2026-04-10', caName: 'CA R. Iyer', membershipNo: '012345', turnoverCr: NEXORA_TURNOVER_CR, fy: '2025-26' })}\n-- end --`
+  await writeFile(join(dir, 'gstin.txt'), gst, 'utf-8')
+  await writeFile(join(dir, 'pan.txt'), pan, 'utf-8')
+  await writeFile(join(dir, 'turnover.txt'), turnover, 'utf-8')
 }
 
 async function main() {
-  for (const p of personas) {
-    let companyId: string | null = null
-    if (p.company) {
-      const gstin = gstinFor('07', p.company.pan)
-      const c = p.company as Record<string, unknown>
-      const data = { ...c, gstin } as unknown as { id: string; name: string } & Record<string, unknown>
-      await prisma.company.upsert({
-        where: { id: p.company.id },
-        update: data,
-        create: data,
-      })
-      companyId = p.company.id
-    }
-    await prisma.user.upsert({
-      where: { id: p.user.id },
-      update: { ...p.user, password: hashPassword(p.user.password), companyId },
-      create: { ...p.user, password: hashPassword(p.user.password), companyId },
-    })
-  }
-
-  for (const t of LEGACY_TENDERS) await seedTender(t)
-  for (const t of demoTenders()) await seedTender(t)
-
-  await seedRegistries()
-  await seedDemoDocs()
-
+  await seedOfficer()
+  await seedCompany()
+  await seedFraudDemo()
+  await seedRegistry()
+  await seedFixtureDocs()
   const users = await prisma.user.count()
   const companies = await prisma.company.count()
   const tenders = await prisma.tender.count()
-  console.log(`Seed complete: ${users} users, ${companies} companies, ${tenders} tenders.`)
+  console.log(`Database seeded: ${users} users, ${companies} companies, ${tenders} tenders, ${await prisma.mockRegistryEntry.count()} registry entries.`)
 }
 
 main()

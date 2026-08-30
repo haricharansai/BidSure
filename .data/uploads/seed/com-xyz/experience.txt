@@ -1,5 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-issuer: Govt e-Marketplace past contracts
-validTill: 2027-12-31
-BIDSURE-MOCK-EXTRACT {"issuer":"Govt e-Marketplace past contracts","validTill":"2027-12-31"}
--- end of document --

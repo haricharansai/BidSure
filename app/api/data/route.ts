@@ -8,7 +8,6 @@ import { tick } from '@/lib/server/lifecycle'
 import {
   getAuctionState, getAuditData, getClarifications, getCompanies, getEvaluationDetail,
   getMarketplace, getMySubmissions, getOfficerTenders, getTenderDetailV2,
-  // real-DB legacy adapters (replace the hardcoded lib/db.ts data)
   getOfficerDashboardV2, getSellerDashboardV2,
   getLegacyTenders, getLegacyTenderDetail,
   getLegacyEvaluation, getLegacyCompliance,

@@ -7,6 +7,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Native/dynamic-require OCR deps must stay outside the bundler.
+  serverExternalPackages: ['unpdf', 'tesseract.js'],
 }
 
 export default nextConfig

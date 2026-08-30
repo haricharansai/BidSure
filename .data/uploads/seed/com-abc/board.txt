@@ -1,6 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-signerName: Director — Board of ABC Technologies Pvt. Ltd.
-designation: Director
-date: 2026-08-01
-BIDSURE-MOCK-EXTRACT {"signerName":"Director — Board of ABC Technologies Pvt. Ltd.","designation":"Director","date":"2026-08-01"}
--- end of document --

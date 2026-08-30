@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
     const submission = await prisma.submission.findUnique({
       where: { id: submissionId },
-      include: { tender: true, docs: true },
+      include: { tender: true, docs: true, company: true },
     })
     if (!submission || submission.companyId !== user.companyId) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 })
@@ -104,6 +104,8 @@ export async function POST(request: Request) {
     })
 
     // PRELIMINARY (non-authoritative) verification: extract + basic checks.
+    // Company profile is passed for the three-way identity chain (declared
+    // data, never authoritative).
     const preliminary = await runPreliminaryVerification({
       submittedDocId: submittedDoc.id,
       submissionId: submission.id,
@@ -114,6 +116,12 @@ export async function POST(request: Request) {
       originalName: stored.originalName,
       tenderId: submission.tenderId,
       actor: { id: user.id, role: user.role },
+      company: {
+        gstin: submission.company.gstin,
+        pan: submission.company.pan,
+        legalName: submission.company.legalName,
+        name: submission.company.name,
+      },
     })
 
     return NextResponse.json({

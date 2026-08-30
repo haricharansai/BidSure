@@ -1,7 +1,0 @@
-== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
-fy: 2025-26
-auditedPnlCr: 23.5
-netWorthCr: 6.5
-auditorName: Sharma & Associates
-BIDSURE-MOCK-EXTRACT {"fy":"2025-26","auditedPnlCr":23.5,"netWorthCr":6.5,"auditorName":"Sharma & Associates"}
--- end of document --

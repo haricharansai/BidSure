@@ -84,6 +84,10 @@ export interface SubmittedDocClaim {
   sizeMb?: number | null
   validTill?: string | null
   extracted?: Record<string, unknown>
+  /** PENDING | RUNNING | DONE | FAILED — FAILED means OCR/extraction could not
+   * read the document (plan §26): validator breaches become NEEDS_REVIEW
+   * because fraud cannot be distinguished from an unreadable scan. */
+  extractionStatus?: string | null
   /** Injected structural + registry checks (from lib/server/verify). Optional —
    * engine falls back to validators alone when absent (legacy callers/tests). */
   registryChecks?: EngineCheck[]
@@ -250,6 +254,9 @@ export function evaluateSubmission(
     const extracted = (claim.extracted ?? {}) as Record<string, unknown>
     let result: ValidatorResult = { ok: true, status: 'UNVERIFIED', note: 'No deterministic validator for this document' }
     switch (spec.name) {
+      // Fallback validators use the declared company-profile value (the
+      // pre-existing legacy behavior); the real verification of EXTRACTED
+      // values arrives via the injected registryChecks (evidence-bearing).
       case 'gstin':
         result = validateGstin(String(extracted.number ?? company.gstin ?? ''))
         break
@@ -260,7 +267,7 @@ export function evaluateSubmission(
         result = validateUdin(String(extracted.udin ?? ''), extracted.certDate ? String(extracted.certDate) : null, bidOpening)
         break
       case 'udyam':
-        result = validateUdyam(String(extracted.number ?? company.udyamNo ?? ''), extracted.nicCode ? String(extracted.nicCode) : company.udyamNicCode, company.msme && tender.emdRequired)
+        result = validateUdyam(String(extracted.number ?? company.udyamNo ?? ''), (extracted.nicCode ? String(extracted.nicCode) : company.udyamNicCode), company.msme && tender.emdRequired)
         if (!result.ok) {
           flags.push({ kind: 'TRADER_MSME_TRAP', severity: 'CRITICAL', note: result.note })
           fatal = true
@@ -300,6 +307,15 @@ export function evaluateSubmission(
         }
     }
     const graded = gradeDoc(result)
+    // Extraction-failure safety (plan §26): a document that exists but could
+    // not be machine-read is NOT auto-rejected — fraud cannot be
+    // distinguished from an unreadable scan, so deterministic validator
+    // breaches become NEEDS_REVIEW for the officer (Rule 10). A genuinely
+    // MISSING document (provided=false) stays NON_COMPLIANT.
+    if (claim.extractionStatus === 'FAILED' && graded.status === 'NON_COMPLIANT') {
+      graded.status = 'NEEDS_REVIEW'
+      graded.note = `${result.note} — automated extraction could not read this document; officer must verify the original submission`
+    }
     // Merge injected structural + registry checks (authoritative verification):
     // the document's 6-state status becomes the WORST of the validator result
     // and any injected check — registry MISMATCH therefore downgrades the doc,
@@ -325,7 +341,77 @@ export function evaluateSubmission(
   }
 
   // Stage 3: eligibility.
-  const eligRows = evaluateEligibility(company, tender.requirements)
+  let eligRows = evaluateEligibility(company, tender.requirements)
+
+  // Turnover verification (plan §22-§25): compare document turnover vs
+  // company-declared turnover vs the tender minimum. Extracted evidence takes
+  // precedence over self-declared company-profile values for eligibility,
+  // while conflicts remain visible for officer review (plan §25).
+  // Turnover verification (plan §22-§25): compare document turnover vs
+  // company-declared turnover vs the tender minimum. Extracted evidence takes
+  // precedence over self-declared company-profile values for eligibility,
+  // while conflicts remain visible for officer review (plan §25).
+  let extractedTurnoverCr: number | null = null
+  {
+    const tDoc = docs.find(d => d.docName === 'turnover' && d.provided)
+    const raw = (tDoc?.extracted ?? {}) as Record<string, unknown>
+    const n = typeof raw.turnoverCr === 'number' ? raw.turnoverCr : Number(raw.turnoverCr)
+    extractedTurnoverCr = n != null && Number.isFinite(n) && n > 0 ? n : null
+  }
+  if (extractedTurnoverCr != null) {
+    const minTurnoverReq = (tender.requirements.eligibility ?? []).find(r => r.key === 'minTurnoverCr')
+    if (minTurnoverReq) {
+      const ok = extractedTurnoverCr >= minTurnoverReq.value
+      allChecks.push({
+        checkId: 'TURNOVER_ELIGIBILITY',
+        stage: 'ELIGIBILITY',
+        docName: 'turnover',
+        inputJson: JSON.stringify({ extractedTurnoverCr }),
+        expectedJson: JSON.stringify({ minTurnoverCr: minTurnoverReq.value }),
+        foundJson: JSON.stringify({ extractedTurnoverCr, requiredCr: minTurnoverReq.value, ok }),
+        status: ok ? 'VERIFIED' : 'NON_COMPLIANT',
+        note: ok
+          ? `Document turnover ₹${extractedTurnoverCr} Cr meets the tender minimum of ₹${minTurnoverReq.value} Cr (verified from CA certificate; extracted evidence takes precedence over self-declared values)`
+          : `Extracted turnover ₹${extractedTurnoverCr} Cr is below the tender minimum of ₹${minTurnoverReq.value} Cr — deterministic disqualification (GFR Rule 173)`,
+        mock: false,
+      })
+      // Precedence: verified document turnover overrides the declared figure
+      // for the eligibility row (plan §25); the declaration-conflict check
+      // below still runs independently.
+      eligRows = eligRows.map(r => r.key === 'minTurnoverCr'
+        ? { ...r, declared: `₹${extractedTurnoverCr} Cr (from CA certificate)`, status: ok ? 'PASS' : 'FAIL' }
+        : r)
+      const reEval = eligibilityOverall(eligRows)
+      if (reEval === 'not_eligible') {
+        fatal = true
+        reasons.push('Verified turnover is below the tender minimum (extracted from the CA certificate)')
+      }
+    }
+    // Declaration conflict: document vs company-declared turnover (plan §24).
+    if (company.turnoverCr != null) {
+      const diff = Math.abs(extractedTurnoverCr - company.turnoverCr)
+      const pct = company.turnoverCr !== 0 ? Math.round((diff / company.turnoverCr) * 1000) / 10 : 0
+      const consistent = extractedTurnoverCr === company.turnoverCr
+      allChecks.push({
+        checkId: 'TURNOVER_DECLARATION_MATCH',
+        stage: 'CROSS_DOC',
+        docName: 'turnover',
+        inputJson: JSON.stringify({ extractedTurnoverCr }),
+        expectedJson: JSON.stringify({ companyTurnoverCr: company.turnoverCr }),
+        foundJson: JSON.stringify({ extractedTurnoverCr, companyTurnoverCr: company.turnoverCr, differenceCr: Math.round(diff * 100) / 100, differencePct: pct }),
+        status: consistent ? 'VERIFIED' : 'NEEDS_REVIEW',
+        note: consistent
+          ? `Turnover on document matches company declaration (₹${extractedTurnoverCr} Cr)`
+          : `Turnover conflict: document ₹${extractedTurnoverCr} Cr vs company declaration ₹${company.turnoverCr} Cr (difference ₹${Math.round(diff * 100) / 100} Cr / ${pct}%) — officer must reconcile`,
+        mock: false,
+      })
+      if (!consistent) {
+        needsReview = true
+        flags.push({ kind: 'TURNOVER_DECLARATION_CONFLICT', severity: 'WARNING', note: `Document turnover ₹${extractedTurnoverCr} Cr differs from declared ₹${company.turnoverCr} Cr — review required` })
+      }
+    }
+  }
+
   const elig = eligibilityOverall(eligRows)
   if (elig === 'not_eligible') {
     fatal = true
