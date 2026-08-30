@@ -403,7 +403,6 @@ function AppShell({ view, navigate, children }: { view: View; navigate: (v: View
   }
   const officerNav: NavGroup[] = [
     ['Overview', [['dashboard', 'Dashboard', BarChart3]]],
-    ['GeM workflow', [['workflow', 'Workflow Tenders', Gavel], ['w-eval', 'Evaluation & Award', ClipboardCheck], ['clarifications', 'Clarifications', MessagesSquare]]],
     ['Verification', [['tenders', 'Tenders', FileText], ['evaluation', 'Bid Evaluation', ClipboardCheck], ['compliance', 'Bidder Compliance', Users], ['documents', 'Document Verification', FileCheck2]]],
     ['Records', [['reports', 'Reports', BookOpen], ['audit', 'Audit Explorer', History]]],
   ]
@@ -422,16 +421,6 @@ function AppShell({ view, navigate, children }: { view: View; navigate: (v: View
       <aside className={sideOpen ? 'open' : ''}>
         <div className="side-top">
           <Logo compact />
-        </div>
-        <div className="side-account">
-          <button className="account-trigger" type="button">
-            <span className="avatar">{user?.initials}</span>
-            <span className="acc-info">
-              <b>{user?.name}</b>
-              <small>{user?.subtitle}</small>
-            </span>
-            <ChevronDown size={15} className="chev" />
-          </button>
         </div>
         <nav className="side-nav">
           {nav.map(([group, items]) => (
@@ -617,35 +606,397 @@ const TENDERS_PAGE_SIZE = 8
 function Tenders({ navigate, userId }: { navigate: (v: View, o?: NavigateOptions) => void; userId: string }) {
   const { data, error, retry } = useApi<{ tenders: Tender[] }>(`/api/data?resource=tenders&userId=${encodeURIComponent(userId)}`)
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'ALL' | Status>('ALL')
+  const [agencyFilter, setAgencyFilter] = useState<string>('ALL')
+  const [evalMethodFilter, setEvalMethodFilter] = useState<string>('ALL')
+  const [biddersFilter, setBiddersFilter] = useState<'ALL' | '0' | '1+' | '3+' | '5+'>('ALL')
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'deadline-soon' | 'bidders-high' | 'value-high' | 'value-low' | 'checks-progress'>('newest')
+  const [filterOpen, setFilterOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const filtered = useMemo(() => (data?.tenders || []).filter(t => `${t.id} ${t.title} ${t.agency}`.toLowerCase().includes(query.toLowerCase())), [data, query])
-  useEffect(() => { setPage(1) }, [query])
+
+  const allTenders = useMemo(() => data?.tenders || [], [data])
+
+  const agencies = useMemo(() => {
+    const list = Array.from(new Set(allTenders.map(t => t.agency).filter(Boolean))).sort()
+    return list
+  }, [allTenders])
+
+  const evalMethods = useMemo(() => {
+    const list = Array.from(new Set(allTenders.map(t => t.evaluationMethod).filter(Boolean))).sort()
+    return list
+  }, [allTenders])
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: allTenders.length, Verified: 0, 'In Review': 0, Pending: 0, Exception: 0, Complete: 0 }
+    allTenders.forEach(t => {
+      if (counts[t.status] !== undefined) counts[t.status]++
+    })
+    return counts
+  }, [allTenders])
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (statusFilter !== 'ALL') count++
+    if (agencyFilter !== 'ALL') count++
+    if (evalMethodFilter !== 'ALL') count++
+    if (biddersFilter !== 'ALL') count++
+    if (sortBy !== 'newest') count++
+    if (query.trim()) count++
+    return count
+  }, [statusFilter, agencyFilter, evalMethodFilter, biddersFilter, sortBy, query])
+
+  const resetFilters = useCallback(() => {
+    setQuery('')
+    setStatusFilter('ALL')
+    setAgencyFilter('ALL')
+    setEvalMethodFilter('ALL')
+    setBiddersFilter('ALL')
+    setSortBy('newest')
+    setPage(1)
+  }, [])
+
+  const filtered = useMemo(() => {
+    return allTenders.filter(t => {
+      // Query filter
+      if (query.trim()) {
+        const q = query.toLowerCase()
+        const text = `${t.id} ${t.title} ${t.agency} ${t.value} ${t.evaluationMethod} ${t.status}`.toLowerCase()
+        if (!text.includes(q)) return false
+      }
+      // Status filter
+      if (statusFilter !== 'ALL' && t.status !== statusFilter) return false
+      // Agency filter
+      if (agencyFilter !== 'ALL' && t.agency !== agencyFilter) return false
+      // Evaluation method filter
+      if (evalMethodFilter !== 'ALL' && t.evaluationMethod !== evalMethodFilter) return false
+      // Bidders count filter
+      if (biddersFilter === '0' && t.biddersCount !== 0) return false
+      if (biddersFilter === '1+' && t.biddersCount < 1) return false
+      if (biddersFilter === '3+' && t.biddersCount < 3) return false
+      if (biddersFilter === '5+' && t.biddersCount < 5) return false
+
+      return true
+    }).sort((a, b) => {
+      if (sortBy === 'oldest') {
+        return new Date(a.published).getTime() - new Date(b.published).getTime()
+      }
+      if (sortBy === 'deadline-soon') {
+        return new Date(a.deadlineISO).getTime() - new Date(b.deadlineISO).getTime()
+      }
+      if (sortBy === 'bidders-high') {
+        return b.biddersCount - a.biddersCount
+      }
+      if (sortBy === 'value-high') {
+        const valA = parseFloat(a.value.replace(/[^0-9.]/g, '')) || 0
+        const valB = parseFloat(b.value.replace(/[^0-9.]/g, '')) || 0
+        return valB - valA
+      }
+      if (sortBy === 'value-low') {
+        const valA = parseFloat(a.value.replace(/[^0-9.]/g, '')) || 0
+        const valB = parseFloat(b.value.replace(/[^0-9.]/g, '')) || 0
+        return valA - valB
+      }
+      if (sortBy === 'checks-progress') {
+        const progA = a.checksComplete / Math.max(a.checksTotal, 1)
+        const progB = b.checksComplete / Math.max(b.checksTotal, 1)
+        return progB - progA
+      }
+      // default: newest
+      return new Date(b.deadlineISO).getTime() - new Date(a.deadlineISO).getTime()
+    })
+  }, [allTenders, query, statusFilter, agencyFilter, evalMethodFilter, biddersFilter, sortBy])
+
+  useEffect(() => { setPage(1) }, [query, statusFilter, agencyFilter, evalMethodFilter, biddersFilter, sortBy])
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / TENDERS_PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const pageRows = filtered.slice((currentPage - 1) * TENDERS_PAGE_SIZE, currentPage * TENDERS_PAGE_SIZE)
-  return <PageFrame title="Tenders" subtitle="Manage procurement opportunities and review progress." actions={null}>
-    <div className="toolbar"><div className="search"><Search size={17} /><input placeholder="Search tenders by reference or title" value={query} onChange={e => setQuery(e.target.value)} /></div><button className="filter"><SlidersHorizontal size={16}/> Filters <span>2</span></button><button className="primary"><FileText size={16}/> New tender</button></div>
-    {error ? <ErrorPanel message={error} onRetry={retry} /> : !data ? <PanelSkeleton /> : (
-      <section className="panel">
-        <div className="table-caption"><b>{filtered.length} active tenders</b><span>Personalized results for your account</span></div>
-        {filtered.length === 0
-          ? <div className="empty-evidence" style={{ height: 200 }}><FileSearch size={26} /><b>No tenders found</b><small>Try a different reference or title.</small></div>
-          : <>
+
+  return (
+    <PageFrame
+      title="Tenders"
+      subtitle="Manage procurement opportunities, review compliance, and track bidder submissions."
+      actions={null}
+    >
+      <div className="toolbar">
+        <div className="search">
+          <Search size={17} />
+          <input
+            placeholder="Search tenders by reference, title, or agency"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+          {query && (
+            <button
+              type="button"
+              className="icon-button"
+              style={{ padding: 2, marginRight: -4 }}
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          className={`filter ${filterOpen || activeFilterCount > 0 ? 'active' : ''}`}
+          onClick={() => setFilterOpen(o => !o)}
+          aria-expanded={filterOpen}
+        >
+          <SlidersHorizontal size={16} /> Filters {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+        </button>
+        <button className="primary" onClick={() => navigate('w-create')}>
+          <FileText size={16} /> New tender
+        </button>
+      </div>
+
+      {/* Quick Status Filter Tabs */}
+      <div className="filter-pills" role="tablist" aria-label="Filter tenders by status">
+        <button
+          type="button"
+          className={`filter-pill ${statusFilter === 'ALL' ? 'active' : ''}`}
+          onClick={() => setStatusFilter('ALL')}
+        >
+          All <span className="pill-count">{statusCounts.ALL}</span>
+        </button>
+        <button
+          type="button"
+          className={`filter-pill ${statusFilter === 'Verified' ? 'active' : ''}`}
+          onClick={() => setStatusFilter('Verified')}
+        >
+          Verified <span className="pill-count">{statusCounts.Verified}</span>
+        </button>
+        <button
+          type="button"
+          className={`filter-pill ${statusFilter === 'In Review' ? 'active' : ''}`}
+          onClick={() => setStatusFilter('In Review')}
+        >
+          In Review <span className="pill-count">{statusCounts['In Review']}</span>
+        </button>
+        <button
+          type="button"
+          className={`filter-pill ${statusFilter === 'Pending' ? 'active' : ''}`}
+          onClick={() => setStatusFilter('Pending')}
+        >
+          Pending <span className="pill-count">{statusCounts.Pending}</span>
+        </button>
+        <button
+          type="button"
+          className={`filter-pill ${statusFilter === 'Exception' ? 'active' : ''}`}
+          onClick={() => setStatusFilter('Exception')}
+        >
+          Exception <span className="pill-count">{statusCounts.Exception}</span>
+        </button>
+        {statusCounts.Complete > 0 && (
+          <button
+            type="button"
+            className={`filter-pill ${statusFilter === 'Complete' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('Complete')}
+          >
+            Complete <span className="pill-count">{statusCounts.Complete}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Expandable Filter Panel */}
+      {filterOpen && (
+        <section className="filter-panel" aria-label="Tender filter options">
+          <div className="filter-panel-head">
+            <h3><SlidersHorizontal size={16} /> Refine &amp; Sort Tenders</h3>
+            <button className="icon-button" onClick={() => setFilterOpen(false)} aria-label="Close filter panel">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="filter-grid">
+            <div className="filter-field">
+              <label htmlFor="filter-department">Department / Agency</label>
+              <select
+                id="filter-department"
+                value={agencyFilter}
+                onChange={e => setAgencyFilter(e.target.value)}
+              >
+                <option value="ALL">All Departments ({allTenders.length})</option>
+                {agencies.map(a => (
+                  <option key={a} value={a}>
+                    {a} ({allTenders.filter(t => t.agency === a).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="filter-status">Status</label>
+              <select
+                id="filter-status"
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as 'ALL' | Status)}
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="Verified">Verified ({statusCounts.Verified})</option>
+                <option value="In Review">In Review ({statusCounts['In Review']})</option>
+                <option value="Pending">Pending ({statusCounts.Pending})</option>
+                <option value="Exception">Exception ({statusCounts.Exception})</option>
+                <option value="Complete">Complete ({statusCounts.Complete})</option>
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="filter-method">Evaluation Method</label>
+              <select
+                id="filter-method"
+                value={evalMethodFilter}
+                onChange={e => setEvalMethodFilter(e.target.value)}
+              >
+                <option value="ALL">All Methods</option>
+                {evalMethods.map(m => (
+                  <option key={m} value={m}>
+                    {m} ({allTenders.filter(t => t.evaluationMethod === m).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="filter-bidders">Bidder Activity</label>
+              <select
+                id="filter-bidders"
+                value={biddersFilter}
+                onChange={e => setBiddersFilter(e.target.value as 'ALL' | '0' | '1+' | '3+' | '5+')}
+              >
+                <option value="ALL">All Activity</option>
+                <option value="1+">1+ Bidders submitted</option>
+                <option value="3+">3+ Bidders (High Activity)</option>
+                <option value="5+">5+ Bidders (Competitive)</option>
+                <option value="0">0 Bidders (No submissions yet)</option>
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="filter-sort">Sort Order</label>
+              <select
+                id="filter-sort"
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as typeof sortBy)}
+              >
+                <option value="newest">Latest Published</option>
+                <option value="oldest">Oldest Published</option>
+                <option value="deadline-soon">Submission Deadline (Earliest)</option>
+                <option value="bidders-high">Most Bidders</option>
+                <option value="value-high">Estimated Value (High → Low)</option>
+                <option value="value-low">Estimated Value (Low → High)</option>
+                <option value="checks-progress">Checks Progress</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="filter-panel-foot">
+            {activeFilterCount > 0 && (
+              <button type="button" className="secondary small" onClick={resetFilters}>
+                <RotateCcw size={14} /> Clear all filters
+              </button>
+            )}
+            <button type="button" className="primary small" onClick={() => setFilterOpen(false)}>
+              Apply &amp; close
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Active Filter Tags */}
+      {activeFilterCount > 0 && (
+        <div className="active-filters">
+          <span className="active-filters-label">Active filters:</span>
+          {query.trim() && (
+            <span className="filter-tag">
+              Search: &ldquo;{query}&rdquo;
+              <button type="button" onClick={() => setQuery('')} aria-label="Remove search filter"><X size={12} /></button>
+            </span>
+          )}
+          {statusFilter !== 'ALL' && (
+            <span className="filter-tag">
+              Status: {statusFilter}
+              <button type="button" onClick={() => setStatusFilter('ALL')} aria-label="Remove status filter"><X size={12} /></button>
+            </span>
+          )}
+          {agencyFilter !== 'ALL' && (
+            <span className="filter-tag">
+              Agency: {agencyFilter}
+              <button type="button" onClick={() => setAgencyFilter('ALL')} aria-label="Remove agency filter"><X size={12} /></button>
+            </span>
+          )}
+          {evalMethodFilter !== 'ALL' && (
+            <span className="filter-tag">
+              Method: {evalMethodFilter}
+              <button type="button" onClick={() => setEvalMethodFilter('ALL')} aria-label="Remove method filter"><X size={12} /></button>
+            </span>
+          )}
+          {biddersFilter !== 'ALL' && (
+            <span className="filter-tag">
+              Bidders: {biddersFilter === '0' ? 'No Bids' : `${biddersFilter} Bids`}
+              <button type="button" onClick={() => setBiddersFilter('ALL')} aria-label="Remove bidders filter"><X size={12} /></button>
+            </span>
+          )}
+          {sortBy !== 'newest' && (
+            <span className="filter-tag">
+              Sort: {sortBy.replace('-', ' ')}
+              <button type="button" onClick={() => setSortBy('newest')} aria-label="Reset sort"><X size={12} /></button>
+            </span>
+          )}
+          <button type="button" className="text-button" onClick={resetFilters} style={{ fontSize: 'var(--text-xs)' }}>
+            Reset all
+          </button>
+        </div>
+      )}
+
+      {error ? (
+        <ErrorPanel message={error} onRetry={retry} />
+      ) : !data ? (
+        <PanelSkeleton />
+      ) : (
+        <section className="panel">
+          <div className="table-caption">
+            <b>{filtered.length} {filtered.length === 1 ? 'tender' : 'tenders'} found</b>
+            <span>
+              {allTenders.length > 0 && filtered.length !== allTenders.length
+                ? `Filtered from ${allTenders.length} total active tenders`
+                : 'Personalized results for your account'}
+            </span>
+          </div>
+          {filtered.length === 0 ? (
+            <div className="empty-evidence" style={{ height: 220 }}>
+              <FileSearch size={30} />
+              <b>No tenders match your filter criteria</b>
+              <small>Try adjusting your search query, status, or department filters.</small>
+              <button className="secondary" style={{ marginTop: 12 }} onClick={resetFilters}>
+                <RotateCcw size={15} /> Reset all filters
+              </button>
+            </div>
+          ) : (
+            <>
               <TenderTable rows={pageRows} navigate={navigate} />
               {filtered.length > TENDERS_PAGE_SIZE && (
                 <div className="pagination">
-                  <span className="pg-info">Showing {(currentPage - 1) * TENDERS_PAGE_SIZE + 1}–{Math.min(currentPage * TENDERS_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+                  <span className="pg-info">
+                    Showing {(currentPage - 1) * TENDERS_PAGE_SIZE + 1}–{Math.min(currentPage * TENDERS_PAGE_SIZE, filtered.length)} of {filtered.length}
+                  </span>
                   <div className="pg-controls">
-                    <button disabled={currentPage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}><ChevronLeft size={15} /> Prev</button>
+                    <button disabled={currentPage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                      <ChevronLeft size={15} /> Prev
+                    </button>
                     <span className="pg-page">Page {currentPage} of {totalPages}</span>
-                    <button disabled={currentPage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next <ChevronRight size={15} /></button>
+                    <button disabled={currentPage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                      Next <ChevronRight size={15} />
+                    </button>
                   </div>
                 </div>
               )}
-            </>}
-      </section>
-    )}
-  </PageFrame>
+            </>
+          )}
+        </section>
+      )}
+    </PageFrame>
+  )
 }
 
 function TenderDetail({ navigate, userId, tenderId }: { navigate: (v: View, o?: NavigateOptions) => void; userId: string; tenderId: string | null }) {
@@ -931,6 +1282,7 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
       <section className="panel">
         <div className="empty-evidence" style={{ height: 200 }}><CheckCircle2 size={30} /><b>{done}</b><small>Sellers can now discover it in the marketplace and submit structured claims.</small></div>
         <div className="button-row" style={{ justifyContent: 'center', marginTop: 12 }}>
+          <button className="secondary" onClick={() => navigate('tenders')}>View all tenders</button>
           <button className="secondary" onClick={() => navigate('workflow')}>Back to workflow</button>
           <button className="primary" onClick={() => navigate('w-tender', { tenderId: done })}>Open tender <ArrowRight size={15} /></button>
         </div>
@@ -1012,7 +1364,7 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
         </div>
       </section>
       <div className="button-row" style={{ justifyContent: 'flex-end' }}>
-        <button type="button" className="secondary" onClick={() => navigate('workflow')}>Cancel</button>
+        <button type="button" className="secondary" onClick={() => navigate('tenders')}>Cancel</button>
         <button className="primary" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish tender'}</button>
       </div>
     </form>
