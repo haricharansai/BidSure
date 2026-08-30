@@ -1,0 +1,223 @@
+// BidSure procurement schema (Prisma + PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String        @id @default(cuid())
+  role        String // OFFICER | SELLER
+  email       String        @unique
+  password    String
+  name        String
+  subtitle    String
+  initials    String
+  department  String?
+  employeeId  String?
+  companyId   String?
+  company     Company?      @relation(fields: [companyId], references: [id])
+  submissions Submission[]
+  bids        Bid[]
+  sessions    Session[]
+  audits      AuditEntry[]
+  tenders     Tender[]
+  createdAt   DateTime      @default(now())
+}
+
+model Company {
+  id          String        @id @default(cuid())
+  name               String
+  gstin              String?
+  pan                String?
+  cin                String?
+  legalName          String?
+  turnoverCr         Float?
+  yearsExperience    Int?
+  msme               Boolean            @default(false)
+  iso                Boolean            @default(false)
+  udyamNo            String?
+  udyamNicCode       String?
+  caTurnoverCr       Float?
+  gstr3bTotalCr      Float?
+  auditedPnlCr       Float?
+  netWorthCr         Float?
+  miiLocalContentPct Float?
+  isStartup          Boolean            @default(false)
+  isReseller         Boolean            @default(false)
+  dscTokenId         String?
+  directorDins       String             @default("[]")
+  users              User[]
+  submissions        Submission[]
+  bids               Bid[]
+  evaluations        EvaluationResult[]
+}
+
+model Tender {
+  id          String        @id @default(cuid())
+  title               String
+  agency              String
+  type                String // open | limited | single | e-reverse-auction
+  category            String?
+  product             String?
+  quantity            String?
+  unit                String?
+  valueCr             Float?
+  valueLabel          String?
+  location            String?
+  publishDate         DateTime           @default(now())
+  openDate            DateTime?
+  bidOpeningDate      DateTime?
+  submissionDeadline  DateTime
+  auctionStart        DateTime?
+  auctionEnd          DateTime?
+  auctionExtensions   Int                @default(0)
+  stage               String             @default("PUBLISHED")
+  requirementsJson    String             @default("{}")
+  emdRequired         Boolean            @default(false)
+  emdAmountCr         Float?
+  bidValidityDays     Int                @default(30)
+  msePreference       Boolean            @default(false)
+  miiMinLocalContentPct Float?
+  albThresholdPct     Int                @default(25)
+  corrigendaJson      String             @default("[]")
+  createdById         String
+  createdBy           User               @relation(fields: [createdById], references: [id])
+  requiredDocs        RequiredDoc[]
+  submissions         Submission[]
+  bids                Bid[]
+  evaluations         EvaluationResult[]
+  clarifications      Clarification[]
+  audits              AuditEntry[]
+  awardedToCompanyId  String?
+  awardNote           String?
+  createdAt           DateTime           @default(now())
+}
+
+model RequiredDoc {
+  id          String        @id @default(cuid())
+  tenderId         String
+  tender           Tender   @relation(fields: [tenderId], references: [id])
+  name             String
+  description      String   @default("")
+  classification   String // MANDATORY | CONDITIONAL | SUPPORTING
+  conditionKey     String? // claim key activating a conditional doc
+  allowedTypes     String   @default("[]")
+  maxSizeMb        Float    @default(5)
+}
+
+model Submission {
+  id          String        @id @default(cuid())
+  tenderId            String
+  tender              Tender        @relation(fields: [tenderId], references: [id])
+  companyId           String
+  company             Company       @relation(fields: [companyId], references: [id])
+  userId              String
+  user                User          @relation(fields: [userId], references: [id])
+  status              String        @default("SUBMITTED")
+  technicalResponse   String        @default("{}")
+  financialBidCr      Float?
+  eligibilitySnapshot String        @default("{}")
+  docs                SubmittedDoc[]
+  clarifications      Clarification[]
+  submittedAt         DateTime      @default(now())
+
+  @@unique([tenderId, companyId])
+}
+
+model SubmittedDoc {
+  id          String        @id @default(cuid())
+  submissionId   String
+  submission     Submission @relation(fields: [submissionId], references: [id])
+  docName        String
+  fileName       String?
+  fileType       String?
+  sizeMb         Float?
+  provided       Boolean    @default(false)
+  classification String     @default("MANDATORY")
+  extractedJson  String     @default("{}")
+  validTill      DateTime?
+  status         String     @default("UNVERIFIED")
+  note           String     @default("")
+  uploadedAt     DateTime   @default(now())
+}
+
+model Bid {
+  id          String        @id @default(cuid())
+  tenderId   String
+  tender     Tender   @relation(fields: [tenderId], references: [id])
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  amountCr   Float
+  placedAt   DateTime @default(now())
+
+  @@index([tenderId, amountCr])
+}
+
+model EvaluationResult {
+  id          String        @id @default(cuid())
+  tenderId      String
+  tender        Tender        @relation(fields: [tenderId], references: [id])
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id])
+  submissionId  String?
+  eligibility   String // qualified | disqualified | requires_review
+  technical     String        @default("{}")
+  compliancePct Float         @default(0)
+  financialCr   Float?
+  rank          Int?
+  risk          String        @default("LOW")
+  status        String // qualified | disqualified | requires_review | awarded
+  reasonsJson   String        @default("[]")
+  flagsJson     String        @default("[]")
+  reviewedBy    String?
+  reviewNote    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime      @default(now())
+
+  @@unique([tenderId, companyId])
+}
+
+model Clarification {
+  id          String        @id @default(cuid())
+  tenderId     String
+  tender       Tender     @relation(fields: [tenderId], references: [id])
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id])
+  question     String
+  response     String?
+  askedAt      DateTime   @default(now())
+  respondBy    DateTime
+  status       String     @default("PENDING") // PENDING | ANSWERED
+}
+
+model Session {
+  token     String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model AuditEntry {
+  id          String        @id @default(cuid())
+  seq       Int      @unique
+  ts        DateTime @default(now())
+  actorId   String
+  actorRole String
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  tenderId  String?
+  tender    Tender?  @relation(fields: [tenderId], references: [id])
+  metaJson  String   @default("{}")
+  prevHash  String   @default("")
+  hash      String   @default("")
+
+  @@index([tenderId])
+}
