@@ -9,7 +9,7 @@ import { mseMatchOptions, parseRequirements, toCompanyProfile } from '@/lib/serv
 import type {
   AuditData, AuditRow, AuctionState, EvaluationDetailData, EvaluationRow,
   MarketplaceTender, ProcurementStage, SellerSubmissionRow, TenderDetailV2,
-  TimelineStep, OfficerTenderRow, FlagRow, EligibilityRow,
+  TimelineStep, OfficerTenderRow, FlagRow, EligibilityRow, SellerDocRow,
   DocStatus6,
   // legacy shapes
   Bidder, CheckRow, ComplianceData, EvaluationData,
@@ -193,7 +193,7 @@ export async function getTenderDetailV2(user: AuthedUser, tenderId: string): Pro
     where: { id: tenderId },
     include: {
       requiredDocs: true,
-      submissions: { include: { clarifications: true, company: true, docs: true } },
+      submissions: { include: { clarifications: true, company: true, docs: { include: { documentFile: { include: { extraction: true } } } } } },
       evaluations: { include: { company: { select: { name: true } } } },
     },
   })
@@ -225,6 +225,45 @@ export async function getTenderDetailV2(user: AuthedUser, tenderId: string): Pro
     }
   }
 
+  // Seller's per-document verification rows (file + extraction + checks).
+  let mySubmissionDocs: SellerDocRow[] = []
+  if (mySubmission) {
+    const checks = await prisma.verificationCheck.findMany({
+      where: { submissionId: mySubmission.id },
+      orderBy: { createdAt: 'asc' },
+    })
+    const specByName = new Map(tender.requiredDocs.map(d => [d.name, d]))
+    mySubmissionDocs = mySubmission.docs.map(d => {
+      const spec = specByName.get(d.docName)
+      let allowedTypes: string[] = []
+      try { allowedTypes = JSON.parse(spec?.allowedTypes ?? '[]') as string[] } catch {}
+      const extraction = d.documentFile?.extraction ?? null
+      return {
+        docName: d.docName,
+        label: spec?.description ?? d.docName,
+        classification: (spec?.classification ?? d.classification) as SellerDocRow['classification'],
+        conditionKey: spec?.conditionKey ?? null,
+        allowedTypes,
+        maxSizeMb: spec?.maxSizeMb ?? 5,
+        provided: d.provided,
+        status: d.status as DocStatus6,
+        note: d.note,
+        fileId: d.documentFile?.id ?? null,
+        fileName: d.documentFile?.originalName ?? null,
+        mimeType: d.documentFile?.mimeType ?? null,
+        sizeMb: d.documentFile ? Math.round((d.documentFile.sizeBytes / (1024 * 1024)) * 1000) / 1000 : null,
+        extractionStatus: d.extractionStatus,
+        extractionError: extraction?.error ?? null,
+        extracted: extraction && extraction.status === 'DONE' ? parse<Record<string, unknown>>(extraction.normalizedJson, {}) : null,
+        extractionConfidence: extraction?.confidence ?? null,
+        checks: checks
+          .filter(c => c.submittedDocId === d.id)
+          .map(c => ({ checkId: c.checkId, stage: c.stage, status: c.status as DocStatus6, note: c.note, mock: c.mock })),
+        run: checks.find(c => c.submittedDocId === d.id)?.run ?? null,
+      }
+    })
+  }
+
   return {
     id: tender.id,
     title: tender.title,
@@ -252,18 +291,25 @@ export async function getTenderDetailV2(user: AuthedUser, tenderId: string): Pro
     albThresholdPct: tender.albThresholdPct,
     eligibilityReqs: requirements.eligibility ?? [],
     technicalReqs: requirements.technical ?? [],
-    requiredDocs: tender.requiredDocs.map(d => ({
-      name: d.name, description: d.description, classification: d.classification as TenderDetailV2['requiredDocs'][number]['classification'], conditionKey: d.conditionKey,
-    })),
+    requiredDocs: tender.requiredDocs.map(d => {
+      let allowedTypes: string[] = []
+      try { allowedTypes = JSON.parse(d.allowedTypes) as string[] } catch {}
+      return {
+        name: d.name, description: d.description, classification: d.classification as TenderDetailV2['requiredDocs'][number]['classification'], conditionKey: d.conditionKey,
+        allowedTypes, maxSizeMb: d.maxSizeMb,
+      }
+    }),
     corrigenda: parse<{ version: string; note: string; createdAtISO: string; deadlineChanged: boolean }[]>(tender.corrigendaJson, []).map(c => ({
       version: parseFloat(c.version), note: c.note, createdAtISO: c.createdAtISO, deadlineChanged: c.deadlineChanged,
     })),
     eligibility,
+    mySubmissionDocs,
     mySubmission: mySubmission ? {
       id: mySubmission.id,
       tenderId: tender.id,
       tenderTitle: tender.title,
       stage,
+      status: mySubmission.status,
       submittedAtISO: mySubmission.submittedAt.toISOString(),
       financialBidCr: mySubmission.financialBidCr,
       docsProvided: mySubmission.docs.filter(d => d.provided).length,
@@ -344,6 +390,7 @@ export async function getMySubmissions(user: AuthedUser): Promise<{ submissions:
       tenderId: s.tenderId,
       tenderTitle: s.tender.title,
       stage: s.tender.stage as ProcurementStage,
+      status: s.status,
       submittedAtISO: s.submittedAt.toISOString(),
       financialBidCr: s.financialBidCr,
       docsProvided: s.docs.filter(d => d.provided).length,
@@ -419,7 +466,7 @@ export async function getEvaluationDetail(user: AuthedUser, tenderId: string, dr
     where: { id: tenderId },
     include: {
       requiredDocs: true,
-      submissions: { include: { clarifications: true, company: true, docs: true } },
+      submissions: { include: { clarifications: true, company: true, docs: { include: { documentFile: { include: { extraction: true } } } } } },
       evaluations: { include: { company: true } },
     },
   })
@@ -453,19 +500,36 @@ export async function getEvaluationDetail(user: AuthedUser, tenderId: string, dr
   if (drill) {
     const submission = tender.submissions.find(s => s.companyId === drill.companyId) ?? null
     const specByName = new Map(tender.requiredDocs.map(d => [d.name, d]))
+    // AUTHORITATIVE verification checks for this submission (mock registry, structural).
+    const allChecks = submission
+      ? await prisma.verificationCheck.findMany({ where: { submissionId: submission.id, run: 'AUTHORITATIVE' }, orderBy: { createdAt: 'asc' } })
+      : []
     const docs = submission
-      ? submission.docs.map(d => ({
-          docName: d.docName,
-          label: specByName.get(d.docName)?.description ?? d.docName,
-          classification: d.classification as 'MANDATORY' | 'CONDITIONAL' | 'SUPPORTING',
-          status: d.status as DocStatus6,
-          note: d.note,
-        }))
+      ? submission.docs.map(d => {
+          const extraction = d.documentFile?.extraction ?? null
+          return {
+            docName: d.docName,
+            label: specByName.get(d.docName)?.description ?? d.docName,
+            classification: d.classification as 'MANDATORY' | 'CONDITIONAL' | 'SUPPORTING',
+            status: d.status as DocStatus6,
+            note: d.note,
+            fileId: d.documentFile?.id ?? null,
+            fileName: d.documentFile?.originalName ?? null,
+            extractionConfidence: extraction?.confidence ?? null,
+            extracted: extraction && extraction.status === 'DONE' ? parse<Record<string, unknown>>(extraction.normalizedJson, {}) : null,
+            checks: allChecks
+              .filter(c => c.submittedDocId === d.id)
+              .map(c => ({ checkId: c.checkId, stage: c.stage, status: c.status as DocStatus6, note: c.note, mock: c.mock, expectedJson: c.expectedJson, foundJson: c.foundJson })),
+          }
+        })
       : []
     const flags = parse<FlagRow[]>(drill.flagsJson, [])
     drillDown = {
       companyName: drill.company.name,
       docs,
+      submissionChecks: allChecks
+        .filter(c => c.submittedDocId == null)
+        .map(c => ({ checkId: c.checkId, stage: c.stage, status: c.status as DocStatus6, note: c.note, mock: c.mock, expectedJson: c.expectedJson, foundJson: c.foundJson })),
       eligibilityRows: parse<EligibilityRow[]>(submission?.eligibilitySnapshot ?? '[]', []),
       technical: parse<{ passed: number; total: number; failures: string[] }>(drill.technical, { passed: 0, total: 0, failures: [] }),
       triangulation: {

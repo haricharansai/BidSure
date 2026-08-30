@@ -36,6 +36,17 @@ export async function tick(): Promise<void> {
 async function lockSubmissions(tenderId: string): Promise<void> {
   const tender = await prisma.tender.findUnique({ where: { id: tenderId } })
   if (!tender || !['PUBLISHED', 'CORRIGENDUM'].includes(tender.stage)) return
+  // DRAFT submissions were never finalized — discard them (plan §10).
+  const drafts = await prisma.submission.findMany({ where: { tenderId, status: 'DRAFT' } })
+  for (const draft of drafts) {
+    await prisma.submission.update({ where: { id: draft.id }, data: { status: 'DISCARDED' } }).catch(() => {})
+  }
+  if (drafts.length) {
+    await recordAudit({
+      actorId: tender.createdById, actorRole: 'SYSTEM', action: 'DRAFTS_DISCARDED', tenderId,
+      meta: { count: drafts.length },
+    })
+  }
   await prisma.tender.update({ where: { id: tenderId }, data: { stage: 'CLOSED' } })
   await recordAudit({
     actorId: tender.createdById, actorRole: 'SYSTEM', action: 'SUBMISSIONS_LOCKED', tenderId,

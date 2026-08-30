@@ -21,6 +21,7 @@ import {
   type BidderFingerprint,
   type CollusionHit,
 } from './reconciliation.ts'
+import type { EngineCheck } from './registry.ts'
 
 export type EvalStatus = 'qualified' | 'disqualified' | 'requires_review'
 export type Risk = 'LOW' | 'MEDIUM' | 'HIGH'
@@ -83,6 +84,9 @@ export interface SubmittedDocClaim {
   sizeMb?: number | null
   validTill?: string | null
   extracted?: Record<string, unknown>
+  /** Injected structural + registry checks (from lib/server/verify). Optional —
+   * engine falls back to validators alone when absent (legacy callers/tests). */
+  registryChecks?: EngineCheck[]
 }
 
 export interface Flag { kind: string; severity: 'INFO' | 'WARNING' | 'CRITICAL'; note: string }
@@ -93,10 +97,13 @@ export interface DocOutcome {
   classification: Classification
   status: DocStatus
   note: string
+  /** Per-check verification detail (structural + registry) for this document. */
+  checks: EngineCheck[]
 }
 
 export interface EvalOutcome {
   docs: DocOutcome[]
+  verificationChecks: EngineCheck[]
   eligibilityPerReq: { key: string; label: string; declared: string; status: 'PASS' | 'FAIL' | 'ATTENTION' }[]
   eligibility: 'qualified' | 'not_eligible' | 'needs_attention' | 'not_yet_verified'
   technical: { passed: number; total: number; failures: string[] }
@@ -211,6 +218,12 @@ export function evaluateSubmission(
 
   let fatal = false
   let needsReview = false
+  const allChecks: EngineCheck[] = []
+
+  // Worst-of status merge ( DocStatus order from best to worst ).
+  const STATUS_ORDER: DocStatus[] = ['VERIFIED', 'WARNING', 'UNVERIFIED', 'NEEDS_REVIEW', 'NON_COMPLIANT', 'NOT_APPLICABLE']
+  const worstStatus = (a: DocStatus, b: DocStatus): DocStatus =>
+    STATUS_ORDER.indexOf(b) > STATUS_ORDER.indexOf(a) ? b : a
 
   // Stage 1+2: completeness + per-document validation.
   for (const spec of required) {
@@ -220,7 +233,7 @@ export function evaluateSubmission(
     const conditionalActive = spec.classification === 'CONDITIONAL'
       && (spec.name === 'emd' ? tender.emdRequired : conditionApplies(spec.conditionKey, company))
     if (spec.classification === 'CONDITIONAL' && !conditionalActive) {
-      docOutcomes.push({ docName: spec.name, label: spec.label, classification: spec.classification, status: 'NOT_APPLICABLE', note: spec.name === 'emd' ? 'EMD not applicable for this tender (estimated value ≤ ₹5 L)' : `Condition '${spec.conditionKey}' not claimed by bidder — not applicable` })
+      docOutcomes.push({ docName: spec.name, label: spec.label, classification: spec.classification, status: 'NOT_APPLICABLE', note: spec.name === 'emd' ? 'EMD not applicable for this tender (estimated value ≤ ₹5 L)' : `Condition '${spec.conditionKey}' not claimed by bidder — not applicable`, checks: [] })
       continue
     }
     if (!claim || !claim.provided) {
@@ -231,7 +244,7 @@ export function evaluateSubmission(
           ? `Required because bidder claims '${spec.conditionKey}' — missing when claimed is a FAIL`
           : 'Supporting document not submitted — no scoring penalty'
       if (status === 'NON_COMPLIANT') fatal = true
-      docOutcomes.push({ docName: spec.name, label: spec.label, classification: spec.classification, status, note })
+      docOutcomes.push({ docName: spec.name, label: spec.label, classification: spec.classification, status, note, checks: [] })
       continue
     }
     const extracted = (claim.extracted ?? {}) as Record<string, unknown>
@@ -287,15 +300,27 @@ export function evaluateSubmission(
         }
     }
     const graded = gradeDoc(result)
+    // Merge injected structural + registry checks (authoritative verification):
+    // the document's 6-state status becomes the WORST of the validator result
+    // and any injected check — registry MISMATCH therefore downgrades the doc,
+    // which the compliance weighting and fatal/needsReview logic inherit.
+    const injected = claim.registryChecks ?? []
+    for (const c of injected) {
+      if (c.status === 'NOT_APPLICABLE') continue
+      graded.status = worstStatus(graded.status, c.status)
+      if (c.status === 'NON_COMPLIANT' || c.status === 'NEEDS_REVIEW') graded.note = `${graded.note}${graded.note ? '; ' : ''}${c.note}`
+    }
+    if (injected.length) allChecks.push(...injected)
     if (graded.status === 'NON_COMPLIANT' && (spec.classification === 'MANDATORY' || spec.classification === 'CONDITIONAL')) fatal = true
     if (graded.status === 'NEEDS_REVIEW') needsReview = true
-    docOutcomes.push({ docName: spec.name, label: spec.label, classification: spec.classification, ...graded })
+    docOutcomes.push({ docName: spec.name, label: spec.label, classification: spec.classification, ...graded, checks: injected })
   }
 
   // Supporting docs that were provided but not in the required list enrich the dossier.
   for (const claim of docs) {
     if (claim.provided && !required.some(r => r.name === claim.docName)) {
-      docOutcomes.push({ docName: claim.docName, label: docLabel(claim.docName), classification: 'SUPPORTING', status: 'VERIFIED', note: 'Supporting document received — no penalty, adds to dossier' })
+      docOutcomes.push({ docName: claim.docName, label: docLabel(claim.docName), classification: 'SUPPORTING', status: 'VERIFIED', note: 'Supporting document received — no penalty, adds to dossier', checks: claim.registryChecks ?? [] })
+      if ((claim.registryChecks ?? []).length) allChecks.push(...(claim.registryChecks ?? []))
     }
   }
 
@@ -307,12 +332,20 @@ export function evaluateSubmission(
     reasons.push('Failed one or more eligibility criteria')
   }
 
-  // Rule 6 cross-document consistency.
+  // Rule 6 cross-document consistency — extracted identifiers take precedence
+  // over self-declared company-profile values (plan: seller cannot authoritatively
+  // type extracted values).
+  const gstinDocExtracted = docs.find(d => d.docName === 'gstin' && d.provided)?.extracted as Record<string, unknown> | undefined
+  const panDocExtracted = docs.find(d => d.docName === 'pan' && d.provided)?.extracted as Record<string, unknown> | undefined
   const xdoc = crossDocumentConsistency({
-    gstin: company.gstin,
-    pan: company.pan,
-    legalName: company.legalName ?? company.name,
-    declaredNames: docs.filter(d => d.provided).map(d => d.fileName ?? company.name),
+    gstin: (gstinDocExtracted?.gstin as string | undefined) ?? company.gstin,
+    pan: (panDocExtracted?.pan as string | undefined) ?? company.pan,
+    legalName: (gstinDocExtracted?.legalName as string | undefined) ?? company.legalName ?? company.name,
+    declaredNames: docs.filter(d => d.provided).map(d => {
+      const ex = (d.extracted ?? {}) as Record<string, unknown>
+      const onDoc = (ex.legalName ?? ex.tradeName ?? ex.name) as string | undefined
+      return onDoc ?? d.fileName ?? company.name
+    }),
   })
   if (xdoc.status === 'NON_COMPLIANT') fatal = true
   if (xdoc.status === 'NEEDS_REVIEW') needsReview = true
@@ -367,6 +400,7 @@ export function evaluateSubmission(
 
   return {
     docs: docOutcomes,
+    verificationChecks: allChecks,
     eligibilityPerReq: eligRows,
     eligibility: elig,
     technical: { passed: techPassed, total: technical.length, failures: techFailures },

@@ -10,27 +10,28 @@ datasource db {
 }
 
 model User {
-  id          String        @id @default(cuid())
-  role        String // OFFICER | SELLER
-  email       String        @unique
-  password    String
-  name        String
-  subtitle    String
-  initials    String
-  department  String?
-  employeeId  String?
-  companyId   String?
-  company     Company?      @relation(fields: [companyId], references: [id])
-  submissions Submission[]
-  bids        Bid[]
-  sessions    Session[]
-  audits      AuditEntry[]
-  tenders     Tender[]
-  createdAt   DateTime      @default(now())
+  id            String         @id @default(cuid())
+  role          String // OFFICER | SELLER
+  email         String         @unique
+  password      String
+  name          String
+  subtitle      String
+  initials      String
+  department    String?
+  employeeId    String?
+  companyId     String?
+  company       Company?       @relation(fields: [companyId], references: [id])
+  submissions   Submission[]
+  bids          Bid[]
+  sessions      Session[]
+  audits        AuditEntry[]
+  tenders       Tender[]
+  documentFiles DocumentFile[]
+  createdAt     DateTime       @default(now())
 }
 
 model Company {
-  id          String        @id @default(cuid())
+  id                 String             @id @default(cuid())
   name               String
   gstin              String?
   pan                String?
@@ -58,134 +59,205 @@ model Company {
 }
 
 model Tender {
-  id          String        @id @default(cuid())
-  title               String
-  agency              String
-  type                String // open | limited | single | e-reverse-auction
-  category            String?
-  product             String?
-  quantity            String?
-  unit                String?
-  valueCr             Float?
-  valueLabel          String?
-  location            String?
-  publishDate         DateTime           @default(now())
-  openDate            DateTime?
-  bidOpeningDate      DateTime?
-  submissionDeadline  DateTime
-  auctionStart        DateTime?
-  auctionEnd          DateTime?
-  auctionExtensions   Int                @default(0)
-  stage               String             @default("PUBLISHED")
-  requirementsJson    String             @default("{}")
-  emdRequired         Boolean            @default(false)
-  emdAmountCr         Float?
-  bidValidityDays     Int                @default(30)
-  msePreference       Boolean            @default(false)
+  id                    String             @id @default(cuid())
+  title                 String
+  agency                String
+  type                  String // open | limited | single | e-reverse-auction
+  category              String?
+  product               String?
+  quantity              String?
+  unit                  String?
+  valueCr               Float?
+  valueLabel            String?
+  location              String?
+  publishDate           DateTime           @default(now())
+  openDate              DateTime?
+  bidOpeningDate        DateTime?
+  submissionDeadline    DateTime
+  auctionStart          DateTime?
+  auctionEnd            DateTime?
+  auctionExtensions     Int                @default(0)
+  stage                 String             @default("PUBLISHED")
+  requirementsJson      String             @default("{}")
+  emdRequired           Boolean            @default(false)
+  emdAmountCr           Float?
+  bidValidityDays       Int                @default(30)
+  msePreference         Boolean            @default(false)
   miiMinLocalContentPct Float?
-  albThresholdPct     Int                @default(25)
-  corrigendaJson      String             @default("[]")
-  createdById         String
-  createdBy           User               @relation(fields: [createdById], references: [id])
-  requiredDocs        RequiredDoc[]
-  submissions         Submission[]
-  bids                Bid[]
-  evaluations         EvaluationResult[]
-  clarifications      Clarification[]
-  audits              AuditEntry[]
-  awardedToCompanyId  String?
-  awardNote           String?
-  createdAt           DateTime           @default(now())
+  albThresholdPct       Int                @default(25)
+  corrigendaJson        String             @default("[]")
+  createdById           String
+  createdBy             User               @relation(fields: [createdById], references: [id])
+  requiredDocs          RequiredDoc[]
+  submissions           Submission[]
+  bids                  Bid[]
+  evaluations           EvaluationResult[]
+  clarifications        Clarification[]
+  audits                AuditEntry[]
+  awardedToCompanyId    String?
+  awardNote             String?
+  createdAt             DateTime           @default(now())
 }
 
 model RequiredDoc {
-  id          String        @id @default(cuid())
-  tenderId         String
-  tender           Tender   @relation(fields: [tenderId], references: [id])
-  name             String
-  description      String   @default("")
-  classification   String // MANDATORY | CONDITIONAL | SUPPORTING
-  conditionKey     String? // claim key activating a conditional doc
-  allowedTypes     String   @default("[]")
-  maxSizeMb        Float    @default(5)
+  id             String  @id @default(cuid())
+  tenderId       String
+  tender         Tender  @relation(fields: [tenderId], references: [id])
+  name           String
+  description    String  @default("")
+  classification String // MANDATORY | CONDITIONAL | SUPPORTING
+  conditionKey   String? // claim key activating a conditional doc
+  allowedTypes   String  @default("[]") // JSON array of allowed MIME types
+  maxSizeMb      Float   @default(5)
+  isCustom       Boolean @default(false) // officer-defined catalogue entry
 }
 
 model Submission {
-  id          String        @id @default(cuid())
+  id                  String              @id @default(cuid())
   tenderId            String
-  tender              Tender        @relation(fields: [tenderId], references: [id])
+  tender              Tender              @relation(fields: [tenderId], references: [id])
   companyId           String
-  company             Company       @relation(fields: [companyId], references: [id])
+  company             Company             @relation(fields: [companyId], references: [id])
   userId              String
-  user                User          @relation(fields: [userId], references: [id])
-  status              String        @default("SUBMITTED")
-  technicalResponse   String        @default("{}")
+  user                User                @relation(fields: [userId], references: [id])
+  status              String              @default("SUBMITTED")
+  technicalResponse   String              @default("{}")
   financialBidCr      Float?
-  eligibilitySnapshot String        @default("{}")
+  eligibilitySnapshot String              @default("{}")
   docs                SubmittedDoc[]
   clarifications      Clarification[]
-  submittedAt         DateTime      @default(now())
+  verificationChecks  VerificationCheck[]
+  submittedAt         DateTime            @default(now())
 
   @@unique([tenderId, companyId])
 }
 
 model SubmittedDoc {
-  id          String        @id @default(cuid())
+  id                String             @id @default(cuid())
+  submissionId      String
+  submission        Submission         @relation(fields: [submissionId], references: [id])
+  docName           String
+  fileName          String?
+  fileType          String?
+  sizeMb            Float?
+  provided          Boolean            @default(false)
+  classification    String             @default("MANDATORY")
+  extractedJson     String             @default("{}")
+  validTill         DateTime?
+  status            String             @default("UNVERIFIED")
+  note              String             @default("")
+  uploadedAt        DateTime           @default(now())
+  // Real-file workflow: stored bytes + extraction provenance.
+  documentFile      DocumentFile?
+  extractionResults ExtractionResult[]
+  extractionStatus  String             @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+}
+
+model DocumentFile {
+  id             String            @id @default(cuid())
+  storageKey     String            @unique // "uploads/<yyyy>-<mm>/<cuid>.<ext>" under .data/uploads/
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  sha256         String
+  uploadedById   String
+  uploadedBy     User              @relation(fields: [uploadedById], references: [id])
+  submittedDocId String?           @unique
+  submittedDoc   SubmittedDoc?     @relation(fields: [submittedDocId], references: [id])
+  extraction     ExtractionResult?
+  createdAt      DateTime          @default(now())
+  deletedAt      DateTime? // soft delete on replacement (audit history)
+}
+
+model ExtractionResult {
+  id             String        @id @default(cuid())
+  documentFileId String        @unique
+  documentFile   DocumentFile  @relation(fields: [documentFileId], references: [id])
+  submittedDocId String?
+  submittedDoc   SubmittedDoc? @relation(fields: [submittedDocId], references: [id])
+  docType        String
+  provider       String        @default("MOCK") // MOCK | OCR (future)
+  status         String // DONE | FAILED
+  confidence     Float?
+  rawJson        String        @default("{}")
+  normalizedJson String        @default("{}")
+  error          String?
+  durationMs     Int?
+  createdAt      DateTime      @default(now())
+}
+
+model VerificationCheck {
+  id             String     @id @default(cuid())
   submissionId   String
   submission     Submission @relation(fields: [submissionId], references: [id])
+  submittedDocId String?
   docName        String
-  fileName       String?
-  fileType       String?
-  sizeMb         Float?
-  provided       Boolean    @default(false)
-  classification String     @default("MANDATORY")
-  extractedJson  String     @default("{}")
-  validTill      DateTime?
-  status         String     @default("UNVERIFIED")
+  checkId        String // GSTIN_FORMAT | GSTN_REGISTRY_MATCH | PAN_EMBED | TURNOVER_TRIANGULATION | ...
+  stage          String // STRUCTURAL | REGISTRY | CROSS_DOC | ELIGIBILITY | TECHNICAL
+  inputJson      String     @default("{}")
+  expectedJson   String     @default("{}")
+  foundJson      String     @default("{}")
+  status         String // 6-state DocStatus
   note           String     @default("")
-  uploadedAt     DateTime   @default(now())
+  run            String     @default("AUTHORITATIVE") // PRELIMINARY | AUTHORITATIVE
+  mock           Boolean    @default(false) // registry-backed check against MOCK demo data
+  createdAt      DateTime   @default(now())
+
+  @@index([submissionId])
+}
+
+model MockRegistryEntry {
+  id       String  @id @default(cuid())
+  registry String // GSTN | PAN | UDYAM | MCA | INCOME_TAX | DPIIT | NSIC
+  key      String
+  status   String // ACTIVE | CANCELLED | SUSPENDED | STRUCK_OFF | INACTIVE
+  dataJson String  @default("{}")
+  isMock   Boolean @default(true)
+
+  @@unique([registry, key])
+  @@index([key])
 }
 
 model Bid {
-  id          String        @id @default(cuid())
-  tenderId   String
-  tender     Tender   @relation(fields: [tenderId], references: [id])
-  companyId  String
-  company    Company  @relation(fields: [companyId], references: [id])
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  amountCr   Float
-  placedAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  tenderId  String
+  tender    Tender   @relation(fields: [tenderId], references: [id])
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  amountCr  Float
+  placedAt  DateTime @default(now())
 
   @@index([tenderId, amountCr])
 }
 
 model EvaluationResult {
-  id          String        @id @default(cuid())
+  id            String    @id @default(cuid())
   tenderId      String
-  tender        Tender        @relation(fields: [tenderId], references: [id])
+  tender        Tender    @relation(fields: [tenderId], references: [id])
   companyId     String
-  company       Company       @relation(fields: [companyId], references: [id])
+  company       Company   @relation(fields: [companyId], references: [id])
   submissionId  String?
   eligibility   String // qualified | disqualified | requires_review
-  technical     String        @default("{}")
-  compliancePct Float         @default(0)
+  technical     String    @default("{}")
+  compliancePct Float     @default(0)
   financialCr   Float?
   rank          Int?
-  risk          String        @default("LOW")
+  risk          String    @default("LOW")
   status        String // qualified | disqualified | requires_review | awarded
-  reasonsJson   String        @default("[]")
-  flagsJson     String        @default("[]")
+  reasonsJson   String    @default("[]")
+  flagsJson     String    @default("[]")
   reviewedBy    String?
   reviewNote    String?
   reviewedAt    DateTime?
-  createdAt     DateTime      @default(now())
+  createdAt     DateTime  @default(now())
 
   @@unique([tenderId, companyId])
 }
 
 model Clarification {
-  id          String        @id @default(cuid())
+  id           String     @id @default(cuid())
   tenderId     String
   tender       Tender     @relation(fields: [tenderId], references: [id])
   submissionId String
@@ -206,7 +278,7 @@ model Session {
 }
 
 model AuditEntry {
-  id          String        @id @default(cuid())
+  id        String   @id @default(cuid())
   seq       Int      @unique
   ts        DateTime @default(now())
   actorId   String

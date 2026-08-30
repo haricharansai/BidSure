@@ -8,7 +8,7 @@ import {
   SlidersHorizontal, Sun, Timer, UserRound, Users, Wallet, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { ApiError, apiFetch, storeToken } from '@/lib/api'
+import { ApiError, apiFetch, storeToken, uploadDocument } from '@/lib/api'
 import { DEFAULT_DOC_TEMPLATES, TENDER_TYPE_CONFIG } from '@/lib/tender-config'
 import type {
   AttentionItem, AuditData, AuctionState, Bidder, ComplianceData, EvaluationData, EvaluationDetailData,
@@ -1219,6 +1219,35 @@ function WorkflowTenders({ navigate }: { navigate: (v: View, o?: NavigateOptions
   </PageFrame>
 }
 
+function catalogueDoc(name: string): DocBuilderRow {
+  const tpl = DEFAULT_DOC_TEMPLATES.find(d => d.name === name)
+  return {
+    name,
+    description: tpl?.description ?? name,
+    classification: (tpl?.classification ?? 'SUPPORTING') as DocBuilderRow['classification'],
+    conditionKey: tpl?.conditionKey ?? null,
+    allowedTypes: ['application/pdf', 'image/png', 'image/jpeg', 'text/plain'],
+    maxSizeMb: 5,
+    isCustom: false,
+  }
+}
+
+function defaultCondition(name: string): string | null {
+  return DEFAULT_DOC_TEMPLATES.find(d => d.name === name)?.conditionKey ?? null
+}
+
+interface DocBuilderRow {
+  name: string
+  description: string
+  classification: 'MANDATORY' | 'CONDITIONAL' | 'SUPPORTING'
+  conditionKey: string | null
+  allowedTypes: string[]
+  maxSizeMb: number
+  isCustom: boolean
+}
+
+const ALL_FILE_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'text/plain']
+
 function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) => void }) {
   const [type, setType] = useState('e-reverse-auction')
   const [emdOn, setEmdOn] = useState(true)
@@ -1227,6 +1256,27 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const emdBlocked = Number(valueCr) <= 0.05
+  // Officer-configurable required documents (plan §9): catalogue palette + custom rows.
+  const [docs, setDocs] = useState<DocBuilderRow[]>(() => [
+    ...DEFAULT_DOC_TEMPLATES.map(d => ({
+      name: d.name,
+      description: d.description,
+      classification: d.classification as DocBuilderRow['classification'],
+      conditionKey: d.conditionKey ?? null,
+      allowedTypes: ['application/pdf', 'image/png', 'image/jpeg', 'text/plain'],
+      maxSizeMb: 5,
+      isCustom: false,
+      ...(d.name === 'pan' || d.name === 'gstin' || d.name === 'turnover' || d.name === 'audited' || d.name === 'board' ? {} : {}),
+    })).filter(d => ['pan', 'gstin', 'turnover', 'audited', 'board', 'emd', 'udyam', 'iso'].includes(d.name)),
+  ])
+
+  const toggleDoc = (name: string) => setDocs(ds => ds.some(d => d.name === name) ? ds.filter(d => d.name !== name) : [...ds, catalogueDoc(name)])
+  const patchDoc = (name: string, patch: Partial<DocBuilderRow>) => setDocs(ds => ds.map(d => d.name === name ? { ...d, ...patch } : d))
+  const addCustom = () => {
+    const n = `custom_${docs.filter(d => d.isCustom).length + 1}_${Date.now().toString(36).slice(-4)}`
+    setDocs(ds => [...ds, { name: n, description: 'Custom document', classification: 'SUPPORTING', conditionKey: null, allowedTypes: ['application/pdf'], maxSizeMb: 5, isCustom: true }])
+  }
+  void toggleDoc
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -1269,6 +1319,15 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
           albThresholdPct: Number(f.get('albThresholdPct') || 25),
           eligibility,
           technical,
+          requiredDocs: docs.map(d => ({
+            name: d.name,
+            description: d.description,
+            classification: d.classification,
+            conditionKey: d.conditionKey,
+            allowedTypes: d.allowedTypes,
+            maxSizeMb: d.maxSizeMb,
+            isCustom: d.isCustom,
+          })),
         },
       })
       setDone(res.tenderId)
@@ -1349,19 +1408,65 @@ function CreateTender({ navigate }: { navigate: (v: View, o?: NavigateOptions) =
           ))}
         </section>
       </div>
-      <section className="panel"><h2>Document classification (auto-seeded, GeM catalogue)</h2>
+      <section className="panel"><h2>Required documents</h2>
+        <p className="eyebrow">Select from the GeM catalogue or add custom documents. At least one mandatory document is required. Sellers upload real files; the system extracts and verifies them.</p>
         <div className="mini-list">
-          {DEFAULT_DOC_TEMPLATES.map(d => (
-            <div key={d.name}>
-              <span className="tick"><FileCheck2 size={13} /></span>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <b>{d.description}</b>
-                <ClassificationChip c={d.classification} />
-                {d.conditionKey && <small>applies when bidder claims “{d.conditionKey}”</small>}
+          {DEFAULT_DOC_TEMPLATES.map(tpl => {
+            const included = docs.find(d => d.name === tpl.name)
+            return (
+              <div key={tpl.name} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 220px' }}>
+                  <input type="checkbox" checked={included != null} onChange={() => toggleDoc(tpl.name)} />
+                  <b>{tpl.description}</b>
+                </label>
+                {included && (
+                  <>
+                    <select value={included.classification} onChange={e => patchDoc(tpl.name, { classification: e.target.value as DocBuilderRow['classification'], conditionKey: e.target.value === 'CONDITIONAL' ? (included.conditionKey ?? defaultCondition(tpl.name)) : null })} style={{ width: 150 }}>
+                      <option value="MANDATORY">Mandatory</option>
+                      <option value="CONDITIONAL">Conditional</option>
+                      <option value="SUPPORTING">Supporting / optional</option>
+                    </select>
+                    {included.classification === 'CONDITIONAL' && (
+                      <select value={included.conditionKey ?? ''} onChange={e => patchDoc(tpl.name, { conditionKey: e.target.value || null })} style={{ width: 160 }}>
+                        <option value="">— condition —</option>
+                        <option value="emd">EMD applies</option>
+                        <option value="msme">bidder claims MSE</option>
+                        <option value="startup">bidder claims startup</option>
+                        <option value="reseller">bidder is reseller</option>
+                        <option value="mii">bidder declares MII %</option>
+                      </select>
+                    )}
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input type="number" min="0.5" max="25" step="0.5" value={included.maxSizeMb} onChange={e => patchDoc(tpl.name, { maxSizeMb: Number(e.target.value) || 5 })} style={{ width: 60 }} /> MB
+                    </label>
+                    {ALL_FILE_TYPES.map(t => (
+                      <label key={t} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 12 }}>
+                        <input type="checkbox" checked={included.allowedTypes.includes(t)} onChange={e => patchDoc(tpl.name, { allowedTypes: e.target.checked ? [...included.allowedTypes, t] : included.allowedTypes.filter(x => x !== t) })} />
+                        {t.split('/')[1]?.toUpperCase()}
+                      </label>
+                    ))}
+                  </>
+                )}
               </div>
+            )
+          })}
+        </div>
+        <div style={{ marginTop: 10 }}>
+          {docs.filter(d => d.isCustom).map(d => (
+            <div key={d.name} className="claim-row" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="text" value={d.description} onChange={e => patchDoc(d.name, { description: e.target.value })} placeholder="Custom document title" style={{ flex: 1, minWidth: 200 }} />
+              <select value={d.classification} onChange={e => patchDoc(d.name, { classification: e.target.value as DocBuilderRow['classification'] })} style={{ width: 150 }}>
+                <option value="MANDATORY">Mandatory</option>
+                <option value="CONDITIONAL">Conditional</option>
+                <option value="SUPPORTING">Supporting / optional</option>
+              </select>
+              <label>max <input type="number" value={d.maxSizeMb} onChange={e => patchDoc(d.name, { maxSizeMb: Number(e.target.value) || 5 })} style={{ width: 60 }} /> MB</label>
+              <button type="button" className="secondary" onClick={() => setDocs(ds => ds.filter(x => x.name !== d.name))}><X size={13} /> Remove</button>
             </div>
           ))}
+          <button type="button" className="secondary" onClick={addCustom}><FileCheck2 size={14} /> Add custom document</button>
         </div>
+        <small style={{ display: 'block', marginTop: 6 }}>Excluded catalogue documents: {DEFAULT_DOC_TEMPLATES.filter(t => !docs.some(d => d.name === t.name)).map(d => d.description).join(', ') || 'none'}.</small>
       </section>
       <div className="button-row" style={{ justifyContent: 'flex-end' }}>
         <button type="button" className="secondary" onClick={() => navigate('tenders')}>Cancel</button>
@@ -1384,16 +1489,26 @@ const CONDITION_WHY: Record<string, string> = {
   mii: 'You declared a local-content percentage — the Make in India declaration applies.',
 }
 
-interface DocClaimFormState { provided: boolean; fileName: string; validTill: string; extracted: Record<string, string> }
+/** Seller-side conditional-doc applicability (mirrors server conditionAppliesForCompany). */
+function conditionAppliesSeller(conditionKey: string | null, company: TenderDetailV2['myCompany']): boolean {
+  if (!company) return false
+  switch (conditionKey) {
+    case 'msme': return company.msme
+    case 'startup': return company.isStartup
+    case 'mii': return company.miiLocalContentPct != null
+    case 'reseller': return company.isReseller
+    default: return false
+  }
+}
 
 function WorkflowTenderDetail({ navigate, user, tenderId }: { navigate: (v: View, o?: NavigateOptions) => void; user: SessionUser; tenderId: string | null }) {
   const url = tenderId ? `/api/data?resource=tender-v2&tenderId=${encodeURIComponent(tenderId)}` : null
   const { data, error, retry } = useApi<TenderDetailV2>(url)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [claims, setClaims] = useState<Record<string, DocClaimFormState>>({})
   const [tech, setTech] = useState<Record<string, string>>({})
   const [financialBid, setFinancialBid] = useState('')
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null)
   const isOfficer = user.type === 'officer'
 
   if (!tenderId) return <ErrorPanel message="No tender selected — open one from the workflow list or marketplace." />
@@ -1401,11 +1516,26 @@ function WorkflowTenderDetail({ navigate, user, tenderId }: { navigate: (v: View
   if (!data) return LoadingPanel()
 
   const t = data
-  const emptyClaim: DocClaimFormState = { provided: false, fileName: '', validTill: '', extracted: {} }
-  const setClaim = (name: string, patch: Partial<DocClaimFormState>) =>
-    setClaims(c => ({ ...c, [name]: { ...emptyClaim, ...c[name], ...patch } }))
 
-  const submitBid = async () => {
+  const startDraft = async () => {
+    setActionError(null); setBusy(true)
+    try { await runAction({ action: 'startBid', tenderId: t.id }); retry() }
+    catch (err) { setActionError(err instanceof ApiError ? err.message : 'Could not start the bid') }
+    finally { setBusy(false) }
+  }
+
+  const uploadForDoc = async (docName: string, file: File) => {
+    if (!t.mySubmission) return
+    setActionError(null); setUploadingDoc(docName)
+    try {
+      await uploadDocument(t.mySubmission.id, docName, file)
+      retry()
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Upload failed')
+    } finally { setUploadingDoc(null) }
+  }
+
+  const finalizeBid = async () => {
     setActionError(null); setBusy(true)
     try {
       await runAction({
@@ -1414,16 +1544,6 @@ function WorkflowTenderDetail({ navigate, user, tenderId }: { navigate: (v: View
         financialBidCr: Number(financialBid),
         technicalResponse: tech,
         eligibilitySnapshot: t.eligibility?.rows ?? [],
-        docs: t.requiredDocs.map(spec => {
-          const c = claims[spec.name]
-          return {
-            docName: spec.name,
-            provided: c?.provided ?? false,
-            fileName: c?.fileName || undefined,
-            validTill: c?.validTill || undefined,
-            extracted: c?.extracted ?? {},
-          }
-        }),
       })
       retry()
     } catch (err) {
@@ -1535,8 +1655,17 @@ function WorkflowTenderDetail({ navigate, user, tenderId }: { navigate: (v: View
     </section>
 
     {!isOfficer && (t.stage === 'PUBLISHED' || t.stage === 'CORRIGENDUM') && !t.mySubmission && (
-      <section className="panel"><h2>Submit your bid — structured claims</h2>
-        <p className="eyebrow">No file bytes: declare doc metadata + structured fields; the deterministic engine verifies them. All verdicts are “system-verified from declared data”.</p>
+      <section className="panel"><h2>Start your bid</h2>
+        <p className="eyebrow">Upload the required documents — the system extracts and verifies them automatically. Sellers cannot type extracted values.</p>
+        <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+          <button className="primary" disabled={busy} onClick={startDraft}><FileText size={15} /> Start bid (documents checklist)</button>
+        </div>
+      </section>
+    )}
+
+    {!isOfficer && t.mySubmission && t.mySubmission.status === 'DRAFT' && (
+      <section className="panel"><h2>Submit your bid — document uploads</h2>
+        <p className="eyebrow">Draft in progress. Upload each required document; extraction preview is read-only and generated by the system. Finalize before the deadline.</p>
         <Field label="Financial bid (₹ Cr)" type="number" step="0.0001" min="0.0001" value={financialBid} onChange={e => setFinancialBid(e.target.value)} placeholder="e.g. 1.85" required />
         {t.technicalReqs.length > 0 && (
           <div><p className="side-card-title">Technical responses (must match required values)</p>
@@ -1547,37 +1676,70 @@ function WorkflowTenderDetail({ navigate, user, tenderId }: { navigate: (v: View
             ))}
           </div>
         )}
-        <div><p className="side-card-title">Document claims</p>
-          {t.requiredDocs.map(spec => {
-            const c = claims[spec.name] ?? { provided: false, fileName: '', validTill: '', extracted: {} }
-            const ex = (k: string, label: string, ph: string) => (
-              <Field key={k} label={label} type="text" value={c.extracted[k] ?? ''} onChange={e => setClaim(spec.name, { extracted: { ...c.extracted, [k]: e.target.value } })} placeholder={ph} />
-            )
+        <div><p className="side-card-title">Required documents (upload)</p>
+          {t.mySubmissionDocs.map(d => {
+            const active = d.classification === 'CONDITIONAL' && (d.conditionKey === 'emd' ? t.emdRequired : conditionAppliesSeller(d.conditionKey, t.myCompany))
+            const requiredNow = d.classification === 'MANDATORY' || active
             return (
-              <div key={spec.name} className="claim-row">
-                <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input type="checkbox" checked={c.provided} onChange={e => setClaim(spec.name, { provided: e.target.checked })} /> <b>{spec.description}</b> <ClassificationChip c={spec.classification} />
-                </label>
-                {c.provided && (
-                  <div className="form-grid-2">
-                    <Field label="File name (metadata only)" type="text" value={c.fileName} onChange={e => setClaim(spec.name, { fileName: e.target.value })} placeholder="scan.pdf" />
-                    <Field label="Valid till (optional)" type="date" value={c.validTill} onChange={e => setClaim(spec.name, { validTill: e.target.value })} />
-                    {spec.name === 'gstin' && ex('number', 'GSTIN', '07AAECN1234E1ZP')}
-                    {spec.name === 'pan' && ex('number', 'PAN', 'AAECN1234E')}
-                    {spec.name === 'turnover' && ex('udin', 'UDIN (18 digits)', '251234567890123456')}
-                    {spec.name === 'turnover' && ex('certDate', 'Certificate date', '2026-08-01')}
-                    {spec.name === 'udyam' && ex('number', 'Udyam number', 'UDYAM-07-00-0012345')}
-                    {spec.name === 'udyam' && ex('nicCode', 'NIC code', '46')}
-                    {spec.name === 'emd' && ex('validTill', 'BG valid till', '2026-12-01')}
-                    {spec.name === 'emd' && ex('claimPeriodDays', 'Claim period (days ≥45)', '60')}
+              <div key={d.docName} className="claim-row">
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <b>{d.label}</b>
+                  <ClassificationChip c={d.classification} />
+                  {requiredNow && <small>required{d.conditionKey === 'emd' ? ' (EMD applies)' : d.conditionKey ? ` (you claim “${d.conditionKey}”)` : ''}</small>}
+                  {d.provided && <Doc6Badge status={d.status} />}
+                </div>
+                {!d.provided && (
+                  <div style={{ marginTop: 6 }}>
+                    <input
+                      type="file"
+                      disabled={uploadingDoc === d.docName || busy}
+                      accept={[...(d.allowedTypes.length ? d.allowedTypes : ['application/pdf', 'image/png', 'image/jpeg', 'text/plain'])].join(',')}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) void uploadForDoc(d.docName, f) }}
+                    />
+                    <small style={{ marginLeft: 8 }}>max {d.maxSizeMb} MB{d.allowedTypes.length ? ` · ${d.allowedTypes.join(', ')}` : ''}</small>
+                  </div>
+                )}
+                {d.provided && (
+                  <div style={{ marginTop: 6, fontSize: 13 }}>
+                    <div><b>File:</b> {d.fileName} {d.fileId && <a href={`/api/files/${d.fileId}`} target="_blank" rel="noreferrer" className="linkish">view</a>} {d.sizeMb != null && <>({d.sizeMb} MB)</>}</div>
+                    <div><b>Extraction:</b> {d.extractionStatus}{d.extractionConfidence != null ? ` (confidence ${(d.extractionConfidence * 100).toFixed(0)}%)` : ''}{d.extractionError ? ` — ${d.extractionError}` : ''}</div>
+                    {d.extracted && (
+                      <div style={{ margin: '6px 0' }}>
+                        <small className="eyebrow">System-extracted values (read-only)</small>
+                        <div className="detail-list">
+                          {Object.entries(d.extracted).map(([k, v]) => (
+                            <div key={k}><span>{k}</span><b>{String(v)}</b></div>
+                          ))}
+                        </div>
+                        <small>Generated by deterministic MOCK extraction — seller-entered values are not accepted.</small>
+                      </div>
+                    )}
+                    {d.checks.length > 0 && (
+                      <div style={{ margin: '6px 0' }}>
+                        <small className="eyebrow">Preliminary verification (not authoritative — final verdict after deadline)</small>
+                        {d.checks.map((c, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                            <span className={`status ${c.status === 'NON_COMPLIANT' ? 'status-exception' : c.status === 'VERIFIED' ? 'status-verified' : 'status-in-review'}`} style={{ fontSize: 11 }}>
+                              {c.status === 'NON_COMPLIANT' ? '✗' : c.status === 'VERIFIED' ? '✓' : '…'} {c.checkId}
+                            </span>
+                            <small>{c.note}{c.mock && <b> · MOCK GOVERNMENT DATABASE</b>}</small>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <label style={{ display: 'inline-block', marginTop: 6 }}>
+                      <input type="file" disabled={uploadingDoc === d.docName || busy} accept={[...(d.allowedTypes.length ? d.allowedTypes : ['application/pdf', 'image/png', 'image/jpeg', 'text/plain'])].join(',')} onChange={e => { const f = e.target.files?.[0]; if (f) void uploadForDoc(d.docName, f) }} /> Replace document
+                      {uploadingDoc === d.docName && <small> uploading…</small>}
+                    </label>
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-        <div className="button-row" style={{ justifyContent: 'flex-end' }}>
-          <button className="primary" disabled={busy || !financialBid} onClick={submitBid}>{busy ? 'Submitting…' : 'Submit bid'}</button>
+        <div className="button-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+          <button className="secondary" disabled={busy} onClick={withdraw}>Discard draft</button>
+          <button className="primary" disabled={busy || !financialBid} onClick={finalizeBid}>{busy ? 'Submitting…' : 'Finalize bid'}</button>
         </div>
       </section>
     )}
@@ -1594,6 +1756,33 @@ function WorkflowTenderDetail({ navigate, user, tenderId }: { navigate: (v: View
           <div>{t.mySubmission.flags.map((f, i) => <Alert key={i} variant={f.severity === 'CRITICAL' ? 'danger' : f.severity === 'WARNING' ? 'warning' : 'info'} title={f.kind}>{f.note}</Alert>)}</div>
         )}
         {(t.stage === 'PUBLISHED' || t.stage === 'CORRIGENDUM') && <button className="secondary" disabled={busy} onClick={withdraw}><Ban size={15} /> Withdraw bid {t.emdRequired ? '(EMD forfeited)' : ''}</button>}
+        {t.mySubmissionDocs.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <p className="side-card-title">Document verification status</p>
+            {t.mySubmissionDocs.map(d => (
+              <div key={d.docName} className="claim-row">
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <b>{d.label}</b>
+                  {d.provided && <Doc6Badge status={d.status} />}
+                  {d.provided && <small>{d.extractionStatus === 'DONE' ? `extracted (confidence ${((d.extractionConfidence ?? 1) * 100).toFixed(0)}%)` : d.extractionStatus === 'FAILED' ? 'extraction failed — manual review' : 'awaiting verification'}</small>}
+                  {d.fileId && <a href={`/api/files/${d.fileId}`} target="_blank" rel="noreferrer" className="linkish">view file</a>}
+                </div>
+                {d.checks.length > 0 && (
+                  <div style={{ margin: '4px 0' }}>
+                    {d.checks.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <span className={`status ${c.status === 'NON_COMPLIANT' ? 'status-exception' : c.status === 'VERIFIED' ? 'status-verified' : 'status-in-review'}`} style={{ fontSize: 11 }}>
+                          {c.status === 'NON_COMPLIANT' ? '✗' : c.status === 'VERIFIED' ? '✓' : '…'} {c.checkId}
+                        </span>
+                        <small>{c.note}{c.mock && <b> · MOCK GOVERNMENT DATABASE</b>}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     )}
 
@@ -1730,18 +1919,50 @@ function EvalDetailV2({ navigate, tenderId }: { navigate: (v: View, o?: Navigate
             </div>
           )}
           <div className="detail-grid">
-            <section><p className="side-card-title">Documents (6-state)</p>
+            <section><p className="side-card-title">Documents (6-state verification)</p>
               <div className="mini-list">
                 {dd.docs.map(doc => (
                   <div key={doc.docName}>
                     <span className="tick"><FileCheck2 size={13} /></span>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
                       <b>{doc.label}</b><ClassificationChip c={doc.classification} /><Doc6Badge status={doc.status} />
-                      <small>{doc.note}</small>
+                      {doc.fileId && <a href={`/api/files/${doc.fileId}`} target="_blank" rel="noreferrer" className="linkish">{doc.fileName ?? 'view file'}</a>}
+                      {doc.extractionConfidence != null && <small>confidence {(doc.extractionConfidence * 100).toFixed(0)}%</small>}
                     </div>
+                    <small>{doc.note}</small>
+                    {doc.extracted && (
+                      <div className="detail-list" style={{ margin: '4px 0' }}>
+                        {Object.entries(doc.extracted).map(([k, v]) => (
+                          <div key={k}><span>{k}</span><b>{String(v)}</b></div>
+                        ))}
+                      </div>
+                    )}
+                    {doc.checks && doc.checks.length > 0 && (
+                      <div style={{ margin: '4px 0' }}>
+                        {doc.checks.map((c, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                            <span className={`status ${c.status === 'NON_COMPLIANT' ? 'status-exception' : c.status === 'VERIFIED' ? 'status-verified' : 'status-in-review'}`} style={{ fontSize: 11 }}>
+                              {c.status === 'NON_COMPLIANT' ? '✗' : c.status === 'VERIFIED' ? '✓' : '…'} {c.checkId}
+                            </span>
+                            <small>{c.note}{c.mock && <b> · MOCK GOVERNMENT DATABASE</b>}</small>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+              <p className="side-card-title">Cross-document &amp; forensic checks</p>
+              {(dd.submissionChecks ?? []).length === 0
+                ? <small>No submission-level checks recorded.</small>
+                : (dd.submissionChecks ?? []).map((c, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                      <span className={`status ${c.status === 'NON_COMPLIANT' ? 'status-exception' : c.status === 'VERIFIED' ? 'status-verified' : 'status-in-review'}`} style={{ fontSize: 11 }}>
+                        {c.status === 'NON_COMPLIANT' ? '✗' : c.status === 'VERIFIED' ? '✓' : '…'} {c.checkId}
+                      </span>
+                      <small>{c.note}</small>
+                    </div>
+                  ))}
               <p className="side-card-title">Triangulation (CA vs GSTR-3B vs P&amp;L, ≤10%)</p>
               <Doc6Badge status={dd.triangulation.status} /> <small>{dd.triangulation.note}</small>
             </section>

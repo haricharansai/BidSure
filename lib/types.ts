@@ -132,6 +132,42 @@ export interface DocOutcomeRow {
   classification: DocClassification
   status: DocStatus6
   note: string
+  fileId?: string | null
+  fileName?: string | null
+  extractionConfidence?: number | null
+  extracted?: Record<string, unknown> | null
+  checks?: VerificationCheckRow[]
+}
+
+export interface VerificationCheckRow {
+  checkId: string
+  stage: string
+  status: DocStatus6
+  note: string
+  mock: boolean
+}
+
+/** Seller-facing per-document row: file, extraction preview, checks. */
+export interface SellerDocRow {
+  docName: string
+  label: string
+  classification: DocClassification
+  conditionKey: string | null
+  allowedTypes: string[]
+  maxSizeMb: number
+  provided: boolean
+  status: DocStatus6
+  note: string
+  fileId: string | null
+  fileName: string | null
+  mimeType: string | null
+  sizeMb: number | null
+  extractionStatus: string
+  extractionError: string | null
+  extracted: Record<string, unknown> | null
+  extractionConfidence: number | null
+  checks: VerificationCheckRow[]
+  run: string | null
 }
 
 export interface MarketplaceTender {
@@ -181,10 +217,11 @@ export interface TenderDetailV2 {
   albThresholdPct: number
   eligibilityReqs: { key: string; label: string; value: number }[]
   technicalReqs: { key: string; label: string; expected: string }[]
-  requiredDocs: { name: string; description: string; classification: DocClassification; conditionKey: string | null }[]
+  requiredDocs: { name: string; description: string; classification: DocClassification; conditionKey: string | null; allowedTypes: string[]; maxSizeMb: number }[]
   corrigenda: { version: number; note: string; createdAtISO: string; deadlineChanged: boolean }[]
   eligibility: { overall: string; rows: EligibilityRow[] } | null
   mySubmission: SellerSubmissionRow | null
+  mySubmissionDocs: SellerDocRow[]
   clarifications: { id: string; question: string; response: string | null; askedAtISO: string; respondByISO: string; status: string }[]
   nextMove: { label: string; target: string | null; detail: string }
   timeline: TimelineStep[]
@@ -208,6 +245,7 @@ export interface SellerSubmissionRow {
   tenderId: string
   tenderTitle: string
   stage: ProcurementStage
+  status: string
   submittedAtISO: string
   financialBidCr: number | null
   docsProvided: number
@@ -246,8 +284,9 @@ export interface EvaluationDetailData {
   drillDown: {
     companyName: string
     docs: DocOutcomeRow[]
-    eligibilityRows: EligibilityRow[]
-    technical: { passed: number; total: number; failures: string[] }
+  eligibilityRows: EligibilityRow[]
+  submissionChecks: VerificationCheckRow[]
+  technical: { passed: number; total: number; failures: string[] }
     triangulation: { status: DocStatus6; note: string }
     reasons: string[]
     flags: FlagRow[]

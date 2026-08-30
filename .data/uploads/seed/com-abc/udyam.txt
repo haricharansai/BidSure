@@ -1,0 +1,9 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+udyamNo: UDYAM-07-00-0012345
+enterpriseName: ABC Technologies Private Limited
+orgType: MSME
+nicCode: 26
+registrationDate: 2020-07-15
+status: ACTIVE
+BIDSURE-MOCK-EXTRACT {"udyamNo":"UDYAM-07-00-0012345","enterpriseName":"ABC Technologies Private Limited","orgType":"MSME","nicCode":"26","registrationDate":"2020-07-15","status":"ACTIVE"}
+-- end of document --

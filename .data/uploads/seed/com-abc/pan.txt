@@ -1,0 +1,6 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+pan: AAGCA5678F
+name: ABC Technologies Private Limited
+entityType: C
+BIDSURE-MOCK-EXTRACT {"pan":"AAGCA5678F","name":"ABC Technologies Private Limited","entityType":"C"}
+-- end of document --

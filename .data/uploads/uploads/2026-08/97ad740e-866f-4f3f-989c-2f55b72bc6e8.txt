@@ -1,0 +1,6 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+pan: AAFCX9012G
+name: XYZ Trading Company
+entityType: C
+BIDSURE-MOCK-EXTRACT {"pan":"AAFCX9012G","name":"XYZ Trading Company","entityType":"C"}
+-- end of document --

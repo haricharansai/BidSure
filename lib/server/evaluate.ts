@@ -1,8 +1,14 @@
 // Evaluation pipeline — sequential deterministic gates per the GeM blueprint.
 // Bridges Prisma rows into the pure engine (lib/engine) and persists verdicts.
+// PHASE 8: authoritative verification — files are re-read from disk, extraction
+// is re-run, mock registries are re-loaded, and VerificationCheck rows are
+// persisted. Preliminary results are never read here (plan §8).
 import { prisma } from '@/lib/prisma'
 import { evaluateSubmission, runCartelRadar, type CompanyProfile, type TenderRequirements } from '@/lib/engine'
+import type { EngineCheck } from '@/lib/engine/registry.ts'
 import { recordAudit } from '@/lib/server/audit'
+import { readStoredFile, fileSha256 } from '@/lib/server/storage'
+import { verifyDocument } from '@/lib/server/verify'
 
 export { mseMatchOptions, MSE_MATCH_MAX } from '@/lib/engine'
 
@@ -33,7 +39,7 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
     where: { id: tenderId },
     include: {
       requiredDocs: true,
-      submissions: { include: { company: true, docs: true, clarifications: true } },
+      submissions: { include: { company: true, docs: { include: { documentFile: { include: { extraction: true } } } }, clarifications: true } },
       evaluations: true,
     },
   })
@@ -64,6 +70,70 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
       try { return JSON.parse(submission.technicalResponse) as Record<string, string> } catch { return {} }
     })()
 
+    // ---------------------------------------------------------------
+    // AUTHORITATIVE document verification (plan §8): re-read bytes,
+    // re-hash, re-extract, re-lookup registry. Never reads preliminary
+    // VerificationCheck rows; prior AUTHORITATIVE rows are replaced.
+    // ---------------------------------------------------------------
+    const registryChecksByDoc = new Map<string, EngineCheck[]>()
+    await prisma.verificationCheck.deleteMany({ where: { submissionId: submission.id, run: 'AUTHORITATIVE' } })
+    for (const doc of submission.docs) {
+      if (!doc.documentFile || doc.documentFile.deletedAt) continue
+      let buffer: Buffer
+      try {
+        buffer = await readStoredFile(doc.documentFile.storageKey)
+      } catch {
+        await prisma.submittedDoc.update({ where: { id: doc.id }, data: { status: 'NEEDS_REVIEW', note: 'Stored file missing at evaluation time — manual review' } })
+        continue
+      }
+      // Tamper check: file on disk must match the hash recorded at upload.
+      if (fileSha256(buffer) !== doc.documentFile.sha256) {
+        await recordAudit({ actorId: tender.createdById, actorRole: 'SYSTEM', action: 'DOC_FLAGGED', tenderId, meta: { submittedDocId: doc.id, docName: doc.docName, reason: 'sha256 mismatch — file changed after upload', phase: 'AUTHORITATIVE' } })
+      }
+      const outcome = await verifyDocument({
+        submittedDocId: doc.id,
+        documentFileId: doc.documentFile.id,
+        docName: doc.docName,
+        buffer,
+        mimeType: doc.documentFile.mimeType,
+        originalName: doc.documentFile.originalName,
+        tenderId,
+        actorId: tender.createdById,
+        phase: 'AUTHORITATIVE',
+        bidOpeningDate: bidOpening,
+      })
+      const checks: EngineCheck[] = [
+        ...outcome.checks,
+        ...(fileSha256(buffer) !== doc.documentFile.sha256
+          ? [{ checkId: 'FILE_HASH_MISMATCH', stage: 'STRUCTURAL' as const, docName: doc.docName, inputJson: '{}', expectedJson: doc.documentFile.sha256, foundJson: fileSha256(buffer), status: 'NEEDS_REVIEW' as const, note: 'File bytes changed after upload (sha256 mismatch)', mock: false }]
+          : []),
+      ]
+      if (checks.length) {
+        await prisma.verificationCheck.deleteMany({ where: { submittedDocId: doc.id, run: 'AUTHORITATIVE' } })
+        await prisma.verificationCheck.createMany({
+          data: checks.map(c => ({
+            submissionId: submission.id,
+            submittedDocId: doc.id,
+            docName: doc.docName,
+            checkId: c.checkId,
+            stage: c.stage,
+            inputJson: c.inputJson,
+            expectedJson: c.expectedJson,
+            foundJson: c.foundJson,
+            status: c.status,
+            note: c.note,
+            run: 'AUTHORITATIVE',
+            mock: c.mock,
+          })),
+        })
+      }
+      registryChecksByDoc.set(doc.docName, checks)
+    }
+
+    const technicalProfile = (() => {
+      try { return JSON.parse(submission.technicalResponse) as Record<string, string> } catch { return {} }
+    })()
+
     const outcome = evaluateSubmission(
       {
         id: tender.id,
@@ -84,8 +154,9 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
         sizeMb: d.sizeMb,
         validTill: d.validTill?.toISOString() ?? null,
         extracted: (() => { try { return JSON.parse(d.extractedJson) as Record<string, unknown> } catch { return {} } })(),
+        registryChecks: registryChecksByDoc.get(d.docName) ?? [],
       })),
-      technicalResponse,
+      technicalProfile,
       submission.financialBidCr,
     )
 
@@ -103,7 +174,7 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
       if (status === 'qualified') status = 'requires_review'
     }
 
-    // Persist per-doc 6-state statuses back onto SubmittedDoc.
+    // Persist per-doc 6-state statuses back onto SubmittedDoc + doc-level audit.
     for (const docOutcome of outcome.docs) {
       const submitted = submission.docs.find(d => d.docName === docOutcome.docName)
       if (!submitted) continue
@@ -111,6 +182,36 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
         where: { id: submitted.id },
         data: { status: docOutcome.status, note: docOutcome.note },
       })
+      if (docOutcome.status === 'NOT_APPLICABLE') continue
+      await recordAudit({
+        actorId: tender.createdById, actorRole: 'SYSTEM',
+        action: docOutcome.status === 'NON_COMPLIANT' ? 'DOC_FLAGGED' : 'DOC_VERIFIED',
+        tenderId,
+        meta: { submittedDocId: submitted.id, docName: docOutcome.docName, docStatus: docOutcome.status, note: docOutcome.note, phase: 'AUTHORITATIVE' },
+      })
+    }
+
+    // Persist submission-level CROSS_DOC checks (triangulation + forensic flags).
+    const crossDocRows: Array<{ checkId: string; status: string; note: string }> = []
+    if (outcome.triangulation.status !== 'UNVERIFIED') {
+      crossDocRows.push({ checkId: 'TURNOVER_TRIANGULATION', status: outcome.triangulation.status, note: outcome.triangulation.note })
+    }
+    for (const flag of outcome.flags) {
+      const checkStatus = flag.severity === 'CRITICAL' ? 'NON_COMPLIANT' : flag.severity === 'WARNING' ? 'WARNING' : 'VERIFIED'
+      crossDocRows.push({ checkId: `FLAG_${flag.kind}`, status: checkStatus, note: flag.note })
+    }
+    if (crossDocRows.length) {
+      await prisma.verificationCheck.createMany({
+        data: crossDocRows.map(c => ({
+          submissionId: submission.id,
+          submittedDocId: null,
+          docName: c.checkId,
+          checkId: c.checkId,
+          stage: 'CROSS_DOC',
+          inputJson: '{}', expectedJson: '{}', foundJson: '{}',
+          status: c.status, note: c.note, run: 'AUTHORITATIVE', mock: false,
+        })),
+      }).catch(() => {})
     }
 
     const existing = await prisma.evaluationResult.findUnique({
@@ -147,6 +248,14 @@ export async function runAutomatedEvaluation(tenderId: string, actor: { id: stri
       await prisma.evaluationResult.create({ data })
     }
 
+    // Human review gate audit (GFR human-in-the-loop).
+    if (status === 'requires_review') {
+      await recordAudit({
+        actorId: tender.createdById, actorRole: 'SYSTEM', action: 'MANUAL_REVIEW_REQUESTED', tenderId,
+        meta: { submissionId: submission.id, companyId: submission.companyId, companyName: submission.company.name, reasons: outcome.reasons },
+      })
+    }
+
     await prisma.submission.update({
       where: { id: submission.id },
       data: { eligibilitySnapshot: JSON.stringify(outcome.eligibilityPerReq) },
@@ -166,3 +275,4 @@ export async function computeRanks(tenderId: string): Promise<void> {
     await prisma.evaluationResult.update({ where: { id: results[i].id }, data: { rank: i + 1 } })
   }
 }
+

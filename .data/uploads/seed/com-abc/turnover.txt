@@ -1,0 +1,9 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+udin: 251234567890123456
+certDate: 2026-07-20
+caName: CA R. Sharma, FCA
+membershipNo: FRN-024511
+turnoverCr: 4.6
+fy: 2025-26
+BIDSURE-MOCK-EXTRACT {"udin":"251234567890123456","certDate":"2026-07-20","caName":"CA R. Sharma, FCA","membershipNo":"FRN-024511","turnoverCr":4.6,"fy":"2025-26"}
+-- end of document --

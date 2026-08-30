@@ -14,6 +14,7 @@ import {
   officerDecision,
   placeBid,
   respondClarification,
+  startBid,
   submitTender,
   uploadDoc,
   withdrawBid,
@@ -21,6 +22,7 @@ import {
 
 const ACTIONS: Record<string, (ctx: { user: import('@/lib/server/auth').AuthedUser; body: Record<string, unknown> }) => Promise<unknown>> = {
   createTender,
+  startBid,
   submitTender,
   placeBid,
   awardTender,

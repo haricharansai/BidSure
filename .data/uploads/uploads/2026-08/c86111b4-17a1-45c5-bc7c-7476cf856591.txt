@@ -1,0 +1,8 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+gstin: 07AAECN1234E1ZP
+legalName: Nexora Systems Private Limited
+tradeName: Nexora Systems Pvt. Ltd.
+registrationDate: 2014-06-12
+status: ACTIVE
+BIDSURE-MOCK-EXTRACT {"gstin":"07AAECN1234E1ZP","legalName":"Nexora Systems Private Limited","tradeName":"Nexora Systems Pvt. Ltd.","registrationDate":"2014-06-12","status":"ACTIVE"}
+-- end of document --

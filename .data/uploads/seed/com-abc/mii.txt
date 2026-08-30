@@ -1,0 +1,5 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+localContentPct: 55
+declaredBy: ABC Technologies Pvt. Ltd.
+BIDSURE-MOCK-EXTRACT {"localContentPct":55,"declaredBy":"ABC Technologies Pvt. Ltd."}
+-- end of document --

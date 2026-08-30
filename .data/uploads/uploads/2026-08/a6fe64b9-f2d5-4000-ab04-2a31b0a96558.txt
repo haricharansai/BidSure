@@ -1,0 +1,8 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+gstin: 07AAFCX9012G1Z3
+legalName: XYZ Trading Company
+tradeName: XYZ Trading Co.
+registrationDate: 2014-06-12
+status: ACTIVE
+BIDSURE-MOCK-EXTRACT {"gstin":"07AAFCX9012G1Z3","legalName":"XYZ Trading Company","tradeName":"XYZ Trading Co.","registrationDate":"2014-06-12","status":"ACTIVE"}
+-- end of document --

@@ -7,6 +7,7 @@ import { recordAudit } from '@/lib/server/audit'
 import { maybeExtendAuction } from '@/lib/server/lifecycle'
 import { computeRanks } from '@/lib/server/evaluate'
 import { DEFAULT_DOC_TEMPLATES, isTenderType } from '@/lib/tender-config'
+import { deleteStoredFile } from '@/lib/server/storage'
 
 const CORRIGENDUM_CUTOFF_MS = 60 * 1000 // demo-scaled GeM rule (≥7 days before bid end)
 const EMD_MIN_ESTIMATE_CR = 0.05 // ₹5 L in Crores — EMD applies only above this (GeM)
@@ -57,11 +58,50 @@ export async function createTender({ user, body }: ActionContext) {
 
   const eligibility = Array.isArray(body.eligibility) ? body.eligibility : []
   const technical = Array.isArray(body.technical) ? body.technical : []
+
+  // Officer-configurable required documents (plan §9). Falls back to the GeM
+  // catalogue when the officer does not send a list (legacy callers keep working).
+  const KNOWN_CLASSIFICATIONS = ['MANDATORY', 'CONDITIONAL', 'SUPPORTING']
+  interface RequiredDocInput { name: string; description?: string; classification: string; conditionKey?: string | null; allowedTypes?: string[]; maxSizeMb?: number; isCustom?: boolean }
+  let requiredDocs: RequiredDocInput[]
+  if (Array.isArray(body.requiredDocs) && body.requiredDocs.length > 0) {
+    requiredDocs = body.requiredDocs as RequiredDocInput[]
+    const seen = new Set<string>()
+    for (const d of requiredDocs) {
+      const name = str(d?.name).trim()
+      if (!name) throw new ApiError('Every required document needs a name', 400)
+      if (!/^[a-z0-9_-]{2,32}$/i.test(name)) throw new ApiError(`Document name '${name}' is invalid (2-32 chars: a-z, 0-9, - _)`, 400)
+      if (seen.has(name)) throw new ApiError(`Duplicate document name: ${name}`, 400)
+      seen.add(name)
+      if (!KNOWN_CLASSIFICATIONS.includes(str(d?.classification, 'SUPPORTING'))) throw new ApiError(`Invalid classification for ${name}`, 400)
+      if (d?.conditionKey != null && !KNOWN_CONDITION_KEYS_SET.has(str(d.conditionKey))) {
+        throw new ApiError(`Unknown condition key '${str(d.conditionKey)}' for ${name}`, 400)
+      }
+      const maxMb = num(d?.maxSizeMb)
+      if (maxMb != null && (maxMb <= 0 || maxMb > 25)) throw new ApiError(`Max size for ${name} must be between 0 and 25 MB`, 400)
+      const types = Array.isArray(d?.allowedTypes) ? d.allowedTypes : []
+      for (const t of types) {
+        if (typeof t !== 'string' || !/^[a-z]+\/[a-z0-9.+-]+$/i.test(t)) throw new ApiError(`Invalid allowed type '${String(t)}' for ${name}`, 400)
+      }
+    }
+    if (!requiredDocs.some(d => str(d?.classification) === 'MANDATORY')) {
+      throw new ApiError('At least one mandatory document is required', 400)
+    }
+    // EMD doc must exist when the tender requires EMD (engine activates it by tender flag).
+    if (emdRequired && !requiredDocs.some(d => str(d?.name) === 'emd')) {
+      requiredDocs = [...requiredDocs, { name: 'emd', description: 'EMD / bid security bank guarantee (required by this tender)', classification: 'CONDITIONAL', conditionKey: 'emd' }]
+    }
+  } else {
+    requiredDocs = DEFAULT_DOC_TEMPLATES.map(d => ({
+      name: d.name, description: d.description, classification: d.classification, conditionKey: d.conditionKey ?? null,
+    }))
+  }
+
   const requirements = {
     eligibility,
     technical,
-    requiredDocs: DEFAULT_DOC_TEMPLATES.map(d => ({
-      name: d.name, label: d.description, classification: d.classification, conditionKey: d.conditionKey ?? null,
+    requiredDocs: requiredDocs.map(d => ({
+      name: str(d.name), label: str(d.description, str(d.name)), classification: str(d.classification, 'SUPPORTING'), conditionKey: d.conditionKey ?? null,
     })),
   }
 
@@ -94,18 +134,39 @@ export async function createTender({ user, body }: ActionContext) {
       corrigendaJson: '[]',
       createdById: user.id,
       requiredDocs: {
-        create: requirements.requiredDocs.map(d => ({
-          id: `${id}:${d.name}`,
-          name: d.name,
-          description: d.label,
-          classification: d.classification,
-          conditionKey: d.conditionKey,
-        })),
+        create: requirements.requiredDocs.map(d => {
+          const spec = requiredDocs.find(r => str(r.name) === d.name)
+          return {
+            id: `${id}:${d.name}`,
+            name: d.name,
+            description: d.label,
+            classification: d.classification,
+            conditionKey: d.conditionKey,
+            allowedTypes: JSON.stringify(Array.isArray(spec?.allowedTypes) ? spec.allowedTypes : []),
+            maxSizeMb: (spec?.maxSizeMb != null && Number.isFinite(Number(spec.maxSizeMb))) ? Number(spec.maxSizeMb) : 5,
+            isCustom: bool(spec?.isCustom) || !CATALOGUE_NAMES.has(d.name),
+          }
+        }),
       },
     },
   })
-  await recordAudit({ actorId: user.id, actorRole: user.role, action: 'TENDER_CREATED', tenderId: tender.id, meta: { title, type, emdRequired, msePreference: bool(body.msePreference) } })
+  await recordAudit({ actorId: user.id, actorRole: user.role, action: 'TENDER_CREATED', tenderId: tender.id, meta: { title, type, emdRequired, msePreference: bool(body.msePreference), requiredDocCount: requirements.requiredDocs.length } })
   return { tenderId: tender.id }
+}
+
+const KNOWN_CONDITION_KEYS_SET = new Set(['emd', 'msme', 'startup', 'reseller', 'mii'])
+const CATALOGUE_NAMES = new Set(DEFAULT_DOC_TEMPLATES.map(d => d.name))
+
+/** Claim-driven conditional-doc applicability (mirrors engine conditionApplies). */
+function conditionAppliesForCompany(conditionKey: string | null | undefined, company: { msme: boolean; isStartup: boolean; miiLocalContentPct: number | null; isReseller: boolean }): boolean {
+  switch (conditionKey) {
+    case 'msme': return company.msme
+    case 'startup': return company.isStartup
+    case 'mii': return company.miiLocalContentPct != null
+    case 'reseller': return company.isReseller
+    case 'land_border': return false
+    default: return false
+  }
 }
 
 export async function askClarification({ user, body }: ActionContext) {
@@ -251,7 +312,9 @@ interface DocClaimInput {
   extracted?: Record<string, unknown>
 }
 
-export async function submitTender({ user, body }: ActionContext) {
+/** PHASE 4: seller starts a bid — creates a DRAFT submission with one
+ * SubmittedDoc row per required document, ready for real file uploads. */
+export async function startBid({ user, body }: ActionContext) {
   if (user.role !== 'SELLER' || !user.companyId) throw new ApiError('Seller account required', 403)
   const tender = await prisma.tender.findUnique({ where: { id: str(body.tenderId) }, include: { requiredDocs: true } })
   if (!tender) throw new ApiError('Tender not found', 404)
@@ -261,7 +324,46 @@ export async function submitTender({ user, body }: ActionContext) {
   const existing = await prisma.submission.findUnique({
     where: { tenderId_companyId: { tenderId: tender.id, companyId: user.companyId } },
   })
-  if (existing) throw new ApiError('You have already submitted a bid for this tender', 409)
+  if (existing) {
+    if (existing.status === 'DRAFT') return { submissionId: existing.id }
+    throw new ApiError('You have already submitted a bid for this tender', 409)
+  }
+
+  const submission = await prisma.submission.create({
+    data: {
+      tenderId: tender.id,
+      companyId: user.companyId,
+      userId: user.id,
+      status: 'DRAFT',
+      technicalResponse: '{}',
+      eligibilitySnapshot: '[]',
+      docs: {
+        create: tender.requiredDocs.map(spec => ({
+          docName: spec.name,
+          provided: false,
+          classification: spec.classification,
+          status: 'UNVERIFIED',
+        })),
+      },
+    },
+  })
+  await recordAudit({ actorId: user.id, actorRole: user.role, action: 'BID_DRAFT_STARTED', tenderId: tender.id, meta: { submissionId: submission.id } })
+  return { submissionId: submission.id }
+}
+
+export async function submitTender({ user, body }: ActionContext) {
+  if (user.role !== 'SELLER' || !user.companyId) throw new ApiError('Seller account required', 403)
+  const tender = await prisma.tender.findUnique({ where: { id: str(body.tenderId) }, include: { requiredDocs: true } })
+  if (!tender) throw new ApiError('Tender not found', 404)
+  if (!['PUBLISHED', 'CORRIGENDUM'].includes(tender.stage) || tender.submissionDeadline.getTime() <= Date.now()) {
+    throw new ApiError('Submissions are locked for this tender', 400)
+  }
+  const existingDraft = await prisma.submission.findUnique({
+    where: { tenderId_companyId: { tenderId: tender.id, companyId: user.companyId } },
+  })
+  if (existingDraft && existingDraft.status !== 'DRAFT') {
+    throw new ApiError('You have already submitted a bid for this tender', 409)
+  }
 
   const claims = (Array.isArray(body.docs) ? body.docs : []) as DocClaimInput[]
   const financialBidCr = num(body.financialBidCr)
@@ -270,6 +372,44 @@ export async function submitTender({ user, body }: ActionContext) {
   let eligibilitySnapshot: unknown[] = []
   try { eligibilitySnapshot = JSON.parse(str(body.eligibilitySnapshot, '[]')) } catch {}
 
+  // DRAFT finalize path: documents come from real uploads (SubmittedDoc rows
+  // created by startBid + /api/documents/upload). Mandatory + active conditional
+  // docs must have been uploaded before finalizing.
+  const draftSubmission = existingDraft
+  if (draftSubmission && draftSubmission.status === 'DRAFT') {
+    const draftWithDocs = await prisma.submission.findUnique({
+      where: { id: draftSubmission.id },
+      include: { docs: true },
+    })
+    if (!draftWithDocs) throw new ApiError('Draft submission not found', 404)
+    const company = await prisma.company.findUnique({ where: { id: user.companyId } })
+    if (!company) throw new ApiError('Company not found', 404)
+    for (const doc of draftWithDocs.docs) {
+      const spec = tender.requiredDocs.find(r => r.name === doc.docName)
+      if (!spec) continue
+      const conditionActive = spec.classification === 'CONDITIONAL'
+        && (spec.conditionKey === 'emd'
+          ? tender.emdRequired
+          : conditionAppliesForCompany(spec.conditionKey, company))
+      const requiredNow = spec.classification === 'MANDATORY' || conditionActive
+      if (requiredNow && (!doc.provided || doc.extractionStatus === 'FAILED')) {
+        throw new ApiError(`Upload the required document '${spec.description}' before finalizing your bid`, 400)
+      }
+    }
+    const submission = await prisma.submission.update({
+      where: { id: draftSubmission.id },
+      data: {
+        status: 'SUBMITTED',
+        technicalResponse: JSON.stringify(body.technicalResponse ?? {}),
+        financialBidCr,
+        eligibilitySnapshot: JSON.stringify(eligibilitySnapshot),
+      },
+    })
+    await recordAudit({ actorId: user.id, actorRole: user.role, action: 'BID_SUBMITTED', tenderId: tender.id, meta: { submissionId: submission.id, financialBidCr, draftFinalized: true } })
+    return { submissionId: submission.id }
+  }
+
+  // Legacy claim-based path (kept for compatibility with older clients/tests).
   const submission = await prisma.submission.create({
     data: {
       tenderId: tender.id,
@@ -371,12 +511,21 @@ export async function withdrawBid({ user, body }: ActionContext) {
   const submission = tender.submissions.find(s => s.companyId === user.companyId)
   if (!submission) throw new ApiError('No submission found', 404)
   if (!['PUBLISHED', 'CORRIGENDUM'].includes(tender.stage)) throw new ApiError('Bid can only be withdrawn before the deadline', 400)
+  const isDraft = submission.status === 'DRAFT'
+  // Remove stored files (bytes + records) with the submission.
+  const docFiles = await prisma.documentFile.findMany({ where: { submittedDoc: { submissionId: submission.id } } })
+  for (const f of docFiles) {
+    await deleteStoredFile(f.storageKey).catch(() => {})
+  }
+  await prisma.verificationCheck.deleteMany({ where: { submissionId: submission.id } })
+  await prisma.extractionResult.deleteMany({ where: { submittedDoc: { submissionId: submission.id } } })
+  await prisma.documentFile.deleteMany({ where: { submittedDoc: { submissionId: submission.id } } })
   await prisma.submittedDoc.deleteMany({ where: { submissionId: submission.id } })
   await prisma.submission.delete({ where: { id: submission.id } })
-  // EMD forfeiture is recorded in the audit trail (GeM rule).
+  // EMD forfeiture is recorded in the audit trail (GeM rule; drafts forfeit nothing).
   await recordAudit({
-    actorId: user.id, actorRole: user.role, action: 'BID_WITHDRAWN', tenderId: tender.id,
-    meta: { emdForfeited: tender.emdRequired, emdAmountCr: tender.emdAmountCr },
+    actorId: user.id, actorRole: user.role, action: isDraft ? 'BID_DRAFT_WITHDRAWN' : 'BID_WITHDRAWN', tenderId: tender.id,
+    meta: { emdForfeited: tender.emdRequired && !isDraft, emdAmountCr: tender.emdAmountCr, submissionId: submission.id },
   })
   return { ok: true }
 }

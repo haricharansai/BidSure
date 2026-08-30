@@ -1,0 +1,8 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+gstin: 07AAGCA5678F1ZN
+legalName: ABC Technologies Private Limited
+tradeName: ABC Technologies Pvt. Ltd.
+registrationDate: 2014-06-12
+status: ACTIVE
+BIDSURE-MOCK-EXTRACT {"gstin":"07AAGCA5678F1ZN","legalName":"ABC Technologies Private Limited","tradeName":"ABC Technologies Pvt. Ltd.","registrationDate":"2014-06-12","status":"ACTIVE"}
+-- end of document --

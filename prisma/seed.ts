@@ -1,6 +1,9 @@
 // Seed: officer + 3 seller personas (incl. the trader-MSME trap persona),
 // 6 legacy tenders (D6 adapter source) and the v2 GeM workflow demo tenders.
 // Run with: node prisma/seed.ts  (Node 24+ native TS stripping)
+// import { createHash } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 
@@ -267,6 +270,184 @@ async function seedTender(t: Record<string, unknown>) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// MOCK government registries (§4 of the plan) — clearly labeled demo data.
+// Deterministic per-company records; intentionally corrupted entries for the
+// NON-COMPLIANT demo persona (XYZ Trading).
+// ---------------------------------------------------------------------------
+
+interface RegistryRow {
+  registry: string
+  key: string
+  status: string
+  data: Record<string, unknown>
+}
+
+function registryRowsForCompany(company: Record<string, unknown>, gstin: string): RegistryRow[] {
+  const legalName = String(company.legalName ?? company.name)
+  const pan = String(company.pan)
+  const isFraud = company.id === 'com-xyz'
+  const rows: RegistryRow[] = [
+    {
+      registry: 'GSTN',
+      key: gstin,
+      status: isFraud ? 'CANCELLED' : 'ACTIVE',
+      data: {
+        legalName: isFraud ? 'XYZ Traders Fraud Enterprises' : legalName,
+        tradeName: String(company.name),
+        registrationDate: '2014-06-12',
+        stateCode: '07',
+        isMock: true,
+      },
+    },
+    {
+      registry: 'PAN',
+      key: pan,
+      status: isFraud ? 'CANCELLED' : 'ACTIVE',
+      data: {
+        name: isFraud ? 'XYZ Traders Fraud Enterprises' : legalName,
+        entityType: pan[3] ?? 'C',
+        isMock: true,
+      },
+    },
+    {
+      registry: 'INCOME_TAX',
+      key: pan,
+      status: isFraud ? 'NON_FILER' : 'ACTIVE',
+      data: { panStatus: isFraud ? 'CANCELLED' : 'ACTIVE', filedReturns3y: !isFraud, isMock: true },
+    },
+    {
+      registry: 'MCA',
+      key: String(company.cin),
+      status: isFraud ? 'STRIKE_OFF_PENDING' : 'ACTIVE',
+      data: {
+        companyName: legalName,
+        incorporationDate: '2014-06-12',
+        directors: JSON.parse(String(company.directorDins ?? '[]')) as string[],
+        isMock: true,
+      },
+    },
+  ]
+  if (company.msme && company.udyamNo) {
+    rows.push({
+      registry: 'UDYAM',
+      key: String(company.udyamNo),
+      status: 'ACTIVE',
+      data: {
+        enterpriseName: legalName,
+        orgType: 'Proprietorship/MSME',
+        nicCode: String(company.udyamNicCode ?? ''),
+        registrationDate: '2020-07-15',
+        isMock: true,
+      },
+    })
+  }
+  return rows
+}
+
+async function seedRegistries(): Promise<void> {
+  let count = 0
+  for (const p of personas) {
+    if (!p.company) continue
+    const company = p.company as Record<string, unknown>
+    const gstin = gstinFor('07', String(company.pan))
+    for (const row of registryRowsForCompany(company, gstin)) {
+      await prisma.mockRegistryEntry.upsert({
+        where: { registry_key: { registry: row.registry, key: row.key } },
+        update: { status: row.status, dataJson: JSON.stringify(row.data) },
+        create: { registry: row.registry, key: row.key, status: row.status, dataJson: JSON.stringify(row.data) },
+      })
+      count++
+    }
+  }
+  console.log(`Mock registries seeded: ${count} MOCK/DEMO entries.`)
+}
+
+// ---------------------------------------------------------------------------
+// Demo document artifacts (deterministic MOCK extraction convention).
+// Each file embeds a machine-readable header the MockExtractionProvider parses:
+//   BIDSURE-MOCK-EXTRACT {json}
+// Files live in .data/uploads/seed/<companyId>/ for manual upload during the
+// demo; extraction output is identical on every run (no randomness).
+// ---------------------------------------------------------------------------
+
+function mockDocText(fields: Record<string, unknown>): string {
+  const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v}`)
+  return [
+    '== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==',
+    ...lines,
+    `BIDSURE-MOCK-EXTRACT ${JSON.stringify(fields)}`,
+    '-- end of document --',
+  ].join('\n')
+}
+
+function demoDocsForCompany(company: Record<string, unknown>, gstin: string): Record<string, Record<string, unknown>> {
+  const legalName = String(company.legalName ?? company.name)
+  const docs: Record<string, Record<string, unknown>> = {
+    pan: { pan: company.pan, name: legalName, entityType: String(company.pan)[3] },
+    gstin: { gstin, legalName, tradeName: company.name, registrationDate: '2014-06-12', status: 'ACTIVE' },
+    turnover: {
+      udin: '251234567890123456',
+      certDate: '2026-07-20',
+      caName: 'CA R. Sharma, FCA',
+      membershipNo: 'FRN-024511',
+      turnoverCr: company.caTurnoverCr,
+      fy: '2025-26',
+    },
+    audited: {
+      fy: '2025-26',
+      auditedPnlCr: company.auditedPnlCr,
+      netWorthCr: company.netWorthCr,
+      auditorName: 'Sharma & Associates',
+    },
+    board: { signerName: 'Director — Board of ' + company.name, designation: 'Director', date: '2026-08-01' },
+    mii: { localContentPct: company.miiLocalContentPct, declaredBy: company.name },
+    experience: { issuer: 'Govt e-Marketplace past contracts', validTill: '2027-12-31' },
+  }
+  if (company.udyamNo) {
+    docs.udyam = {
+      udyamNo: company.udyamNo,
+      enterpriseName: legalName,
+      orgType: 'MSME',
+      nicCode: company.udyamNicCode,
+      registrationDate: '2020-07-15',
+      status: 'ACTIVE',
+    }
+  }
+  if (company.isReseller) {
+    docs.maf = { oemName: 'GlobalTech OEM Ltd', resellerName: company.name, validTill: '2027-03-31' }
+  }
+  if (company.iso) {
+    docs.iso = { issuer: 'ISO Cert India Pvt Ltd', certNumber: 'ISO-9001-2024-0815', validTill: '2027-08-15' }
+  }
+  // NEEDS-REVIEW scenario artifact: unparseable document (no extract block).
+  docs.board_noisy = { _unparseable: true }
+  return docs
+}
+
+function isDemoSeedCompany(companyId: string): boolean {
+  return companyId === 'com-nexora' || companyId === 'com-abc' || companyId === 'com-xyz'
+}
+
+async function seedDemoDocs(): Promise<void> {
+  let written = 0
+  for (const p of personas) {
+    if (!p.company || !isDemoSeedCompany(p.company.id)) continue
+    const company = p.company as Record<string, unknown>
+    const gstin = gstinFor('07', String(company.pan))
+    const dir = join(process.cwd(), '.data', 'uploads', 'seed', p.company.id)
+    mkdirSync(dir, { recursive: true })
+    for (const [docName, fields] of Object.entries(demoDocsForCompany(company, gstin))) {
+      const text = mockDocText(fields)
+      const sha = createHash('sha256').update(text).digest('hex')
+      writeFileSync(join(dir, `${docName}.txt`), text)
+      written++
+      void sha
+    }
+  }
+  console.log(`Demo documents written: ${written} deterministic MOCK artifacts in .data/uploads/seed/.`)
+}
+
 async function main() {
   for (const p of personas) {
     let companyId: string | null = null
@@ -290,6 +471,9 @@ async function main() {
 
   for (const t of LEGACY_TENDERS) await seedTender(t)
   for (const t of demoTenders()) await seedTender(t)
+
+  await seedRegistries()
+  await seedDemoDocs()
 
   const users = await prisma.user.count()
   const companies = await prisma.company.count()

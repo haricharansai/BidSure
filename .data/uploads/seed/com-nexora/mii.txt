@@ -1,0 +1,5 @@
+== SIMULATED GOVERNMENT DOCUMENT (BIDSURE DEMO ARTIFACT) ==
+localContentPct: 62
+declaredBy: Nexora Systems Pvt. Ltd.
+BIDSURE-MOCK-EXTRACT {"localContentPct":62,"declaredBy":"Nexora Systems Pvt. Ltd."}
+-- end of document --

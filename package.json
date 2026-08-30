@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "db:seed": "node prisma/seed.ts",
-    "test": "node --test tests/engine.test.ts"
+    "test": "node --test tests/engine.test.ts tests/registry.test.ts tests/extraction.test.ts tests/storage.test.ts tests/pipeline.test.ts"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"
