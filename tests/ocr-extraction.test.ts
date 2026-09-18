@@ -35,7 +35,10 @@ test('OCR provider: real text-layer PDF → GSTIN + legal name + evidence + clas
     'GST REGISTRATION CERTIFICATE',
     'GSTIN: 07AAECN1234E1ZP',
     'Legal Name: Nexora Systems Private Limited',
+    'Trade Name: Nexora Systems Pvt Ltd',
     'Status: Active',
+    'Date of registration: 15/03/2019',
+    'State: Delhi',
   ])
   const out = await ocrExtract({ docType: 'gstin', buffer: pdf, mimeType: 'application/pdf', fileName: 'gst.pdf' })
   assert.equal(out.status, 'DONE', out.error ?? '')
@@ -49,7 +52,12 @@ test('OCR provider: real text-layer PDF → GSTIN + legal name + evidence + clas
 test('OCR provider name + partial extraction keeps verification alive (plan §12)', async () => {
   // PAN required fields: pan + name. Only PAN is present → DONE with missing
   // reported (verify stage turns that into NEEDS_REVIEW), never a guess.
-  const pdf = minimalPdf(['INCOME TAX DEPARTMENT - PERMANENT ACCOUNT NUMBER CARD', 'PAN: AAECN1234E'])
+  const pdf = minimalPdf([
+    'INCOME TAX DEPARTMENT - PERMANENT ACCOUNT NUMBER CARD',
+    'PAN: AAECN1234E',
+    'Status: Active',
+    'Category: Individual',
+  ])
   const out = await ocrExtract({ docType: 'pan', buffer: pdf, mimeType: 'application/pdf', fileName: 'pan.pdf' })
   assert.equal(out.status, 'DONE')
   assert.equal(out.fields.pan, 'AAECN1234E')

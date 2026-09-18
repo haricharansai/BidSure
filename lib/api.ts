@@ -23,11 +23,12 @@ export function readToken(): string | null {
   }
 }
 
-export async function apiFetch<T>(url: string, options?: { method?: string; body?: unknown }): Promise<T> {
+export async function apiFetch<T>(url: string, options?: { method?: string; body?: unknown; signal?: AbortSignal }): Promise<T> {
   const config: RequestInit = {
     method: options?.method || 'GET',
     headers: { 'Content-Type': 'application/json' } as Record<string, string>,
   }
+  if (options?.signal) config.signal = options.signal
   const token = readToken()
   if (token) (config.headers as Record<string, string>).Authorization = `Bearer ${token}`
   if (options?.body !== undefined) {

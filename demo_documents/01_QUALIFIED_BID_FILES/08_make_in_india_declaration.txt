@@ -1,0 +1,23 @@
+== SIMULATED STATUTORY COMPLIANCE DECLARATION ==
+PUBLIC PROCUREMENT (PREFERENCE TO MAKE IN INDIA) ORDER, 2017 (DPIIT)
+LOCAL CONTENT SELF-DECLARATION CERTIFICATE
+
+Tender No: GeM / Modern Procurement Tender
+Bidder Name: Nexora Systems Private Limited
+Registered Address: Plot 42, Okhla Industrial Area Phase-III, New Delhi 110020
+
+We hereby certify and confirm the following:
+1. Category of Local Supplier: Class-I Local Supplier (Local Content >= 50%)
+2. Percentage of Local Content Offered: 65.00%
+3. Location(s) where local value addition is made: Facility Unit 4, Okhla, New Delhi, India
+
+Calculation Formula:
+Local Content % = ((Total Cost of Product − Cost of Imported Content) / Total Cost of Product) * 100 = 65.0%
+
+We understand that false declarations violate the Public Procurement Policy and GFR Rule 175 and attract penal debarment.
+
+Authorized Signatory
+For Nexora Systems Private Limited
+
+BIDSURE-MOCK-EXTRACT {"miiLocalContentPct":65.0,"supplierClass":"Class-I","location":"New Delhi, India","validTill":"2027-12-31"}
+-- end of statutory declaration --

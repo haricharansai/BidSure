@@ -347,10 +347,6 @@ export function evaluateSubmission(
   // company-declared turnover vs the tender minimum. Extracted evidence takes
   // precedence over self-declared company-profile values for eligibility,
   // while conflicts remain visible for officer review (plan §25).
-  // Turnover verification (plan §22-§25): compare document turnover vs
-  // company-declared turnover vs the tender minimum. Extracted evidence takes
-  // precedence over self-declared company-profile values for eligibility,
-  // while conflicts remain visible for officer review (plan §25).
   let extractedTurnoverCr: number | null = null
   {
     const tDoc = docs.find(d => d.docName === 'turnover' && d.provided)

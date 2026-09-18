@@ -136,10 +136,23 @@ function parseAmountCr(raw: string): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined
 }
 
+/** Strict date parsing: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY or ISO YYYY-MM-DD.
+ * Anything else (prose, OCR noise) yields undefined — a date field must be a
+ * real date, never guessed (plan Rule 7). */
 function parseDate(raw: string): string | undefined {
-  const dmy = raw.match(/^([0-3][0-9])[/\-.]([01][0-9])[/\-.]([0-9]{4})$/)
-  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`
-  return raw.trim() || undefined
+  const v = raw.trim()
+  const dmy = v.match(/^([0-3][0-9])[/\-.]([01][0-9])[/\-.]([0-9]{4})$/)
+  if (dmy) {
+    const day = Number(dmy[1])
+    const month = Number(dmy[2])
+    if (month < 1 || month > 12 || day < 1 || day > 31) return undefined
+    const iso = `${dmy[3]}-${dmy[2]}-${dmy[1]}`
+    return Number.isNaN(new Date(iso).getTime()) ? undefined : iso
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return Number.isNaN(new Date(v).getTime()) ? undefined : v
+  }
+  return undefined
 }
 
 /**
@@ -175,20 +188,24 @@ export function harvestFields(docType: DocTypeName, pages: HarvestPage[], ocrFac
   }
 
   // --- Statutory identifiers (always harvested, format-validated) ---
+  // Statutory IDs are always harvested so cross-type evidence survives a
+  // mis-declared doc name, but confidence is reduced when the identifier
+  // doesn't match the declared doc type — prevents false-positive harvests
+  // from unrelated documents (e.g. a PAN appearing in a contract).
   const firstPageOf = (needle: string): number => {
     const idx = pages.findIndex(p => p.text.toUpperCase().includes(needle))
     return idx >= 0 ? pages[idx].page : 1
   }
   const gstin = upper.match(GSTIN_RE)?.[0]
-  if (gstin) accept('gstin', gstin, firstPageOf(gstin), excerptAround(upper, upper.indexOf(gstin), 15), confidenceFor(false))
+  if (gstin) accept('gstin', gstin, firstPageOf(gstin), excerptAround(upper, upper.indexOf(gstin), 15), confidenceFor(docType === 'gstin'))
   const pan = upper.match(PAN_RE)?.[0]
-  if (pan) accept('pan', pan, firstPageOf(pan), excerptAround(upper, upper.indexOf(pan), 10), confidenceFor(false))
+  if (pan) accept('pan', pan, firstPageOf(pan), excerptAround(upper, upper.indexOf(pan), 10), confidenceFor(docType === 'pan'))
   const udyam = upper.match(UDYAM_RE)?.[0]
-  if (udyam) accept('udyamNo', udyam, firstPageOf(udyam), excerptAround(upper, upper.indexOf(udyam), 23), confidenceFor(false))
+  if (udyam) accept('udyamNo', udyam, firstPageOf(udyam), excerptAround(upper, upper.indexOf(udyam), 23), confidenceFor(docType === 'udyam'))
   const udin = upper.match(UDIN_RE)?.[0]
-  if (udin) accept('udin', udin, firstPageOf(udin), excerptAround(upper, upper.indexOf(udin), 18), confidenceFor(false))
+  if (udin) accept('udin', udin, firstPageOf(udin), excerptAround(upper, upper.indexOf(udin), 18), confidenceFor(docType === 'turnover'))
   const cin = upper.match(CIN_RE)?.[0]
-  if (cin) accept('cin', cin, firstPageOf(cin), excerptAround(upper, upper.indexOf(cin), 21), confidenceFor(false))
+  if (cin) accept('cin', cin, firstPageOf(cin), excerptAround(upper, upper.indexOf(cin), 21), confidenceFor(docType === 'mca'))
 
   // --- Amounts + dates (doc-agnostic but doc-aware) ---
   let amountIdx = 0

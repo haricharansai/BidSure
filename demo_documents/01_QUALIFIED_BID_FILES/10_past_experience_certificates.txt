@@ -1,0 +1,26 @@
+== SIMULATED CLIENT PERFORMANCE CREDENTIAL ==
+MINISTRY OF COMMUNICATIONS & DIGITAL AFFAIRS
+SATISFACTORY COMPLETION & PAST PERFORMANCE CERTIFICATE
+
+Ref No: MCDA/PROC/2024/77192
+Date of Issue: 22/11/2024
+
+To Whom It May Concern:
+
+This is to certify that M/s Nexora Systems Private Limited has successfully executed and completed the following procurement contract:
+
+1. Contract Reference: MCDA-E-GOV-2022-091
+2. Project Title: Modernization and Secured Infrastructure Rollout
+3. Contract Value: ₹14.50 Crores
+4. Start Date: 01/04/2022
+5. Completion Date: 31/10/2024
+6. Total Years in Related Business: 10 Years (Incorporated 2014)
+
+The performance of Nexora Systems Private Limited throughout the execution period was found to be EXCELLENT and within stipulated project milestones.
+
+Authorized Signatory
+Director of Procurement & IT Services
+Government of NCT
+
+BIDSURE-MOCK-EXTRACT {"yearsExperience":10,"contractValueCr":14.5,"clientName":"Ministry of Communications","status":"COMPLETED","validTill":"2028-12-31"}
+-- end of credential --

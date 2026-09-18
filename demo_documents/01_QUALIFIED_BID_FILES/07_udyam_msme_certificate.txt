@@ -1,0 +1,19 @@
+== SIMULATED GOVERNMENT OF INDIA STATUTORY DOCUMENT ==
+MINISTRY OF MICRO, SMALL & MEDIUM ENTERPRISES
+UDYAM REGISTRATION CERTIFICATE
+
+UDYAM REGISTRATION NUMBER: UDYAM-07-00-0098765
+Name of Enterprise: Nexora Systems Private Limited
+Type of Enterprise: Small Enterprise (Manufacturing / IT Services)
+Major Activity: Manufacturing & IT Electronic Solutions
+National Industry Classification (NIC) 5-Digit Code:
+- 26201: Manufacture of electronic computers, servers and computer peripherals
+- 62011: Writing of software and digital transformation systems
+
+Statutory Note: This enterprise is classified under Manufacturing (NIC 26xxx). It is fully eligible for MSME Purchase Preference and Tender Fee / EMD Exemptions. Not a retail/wholesale trader.
+
+Date of Registration: 18/09/2020
+Date of Commencement of Production: 14/08/2014
+
+BIDSURE-MOCK-EXTRACT {"udyamNo":"UDYAM-07-00-0098765","enterpriseName":"Nexora Systems Private Limited","nicCode":"26201","orgType":"Small","trader":false,"status":"ACTIVE"}
+-- end of statutory document --

@@ -152,8 +152,9 @@ export async function getMarketplace(user: AuthedUser): Promise<{ tenders: Marke
   const subByTender = new Map(mySubs.map(s => [s.tenderId, s]))
   const rows: MarketplaceTender[] = tenders.map(t => {
     const requirements = parseRequirements(t)
+    const eligibilityRows = profile ? evaluateEligibility(profile, requirements) : ([] as EligibilityRow[])
     const eligibility = profile
-      ? { overall: overallEligibility(evaluateEligibility(profile, requirements)), rows: evaluateEligibility(profile, requirements) }
+      ? { overall: overallEligibility(eligibilityRows), rows: eligibilityRows }
       : { overall: 'not_yet_verified', rows: [] as EligibilityRow[] }
     const sub = subByTender.get(t.id)
     return {
@@ -741,18 +742,19 @@ type TenderRow = {
 
 /** Map a Prisma Tender row to the legacy Tender shape. */
 function dbToLegacyTender(
-  t: TenderRow,
+  t: TenderRow & { _count?: { submissions?: number; verifiedDocs?: number } },
   submissionCount: number,
   myEvalStatus?: string | null,
 ): Tender {
   const status = legacyStageStatus(t.stage, myEvalStatus)
   const docsTotal = Math.max(t.requiredDocs.length, 1)
-  // Approximate checks based on status
-  const checksComplete =
+  // Use actual verified doc counts when available from the query
+  const checksComplete = t._count?.verifiedDocs ?? (
     status === 'Complete' || status === 'Verified' ? docsTotal
     : status === 'In Review' ? Math.round(docsTotal * 0.6)
     : status === 'Exception' ? Math.round(docsTotal * 0.4)
     : Math.round(docsTotal * 0.1)
+  )
 
   const methodMap: Record<string, string> = {
     'e-reverse-auction': 'E-reverse auction',
@@ -906,7 +908,6 @@ export async function getSellerDashboardV2(user: AuthedUser): Promise<SellerDash
     stats: [
       { label: 'Active bids', value: '0', change: 'No submissions yet' },
       { label: 'Win rate', value: '0%', change: 'No completed bids yet' },
-      { label: 'Documents verified', value: '0', change: 'Across your submissions' },
       { label: 'Open opportunities', value: '0', change: 'Browse the marketplace' },
     ],
     recentBids: [],
@@ -962,10 +963,6 @@ export async function getSellerDashboardV2(user: AuthedUser): Promise<SellerDash
   const wonCount = mySubs.filter(s => evalByTender.get(s.tenderId) === 'awarded').length
   const winRate =
     completedTenders.length > 0 ? Math.round((wonCount / completedTenders.length) * 100) : 0
-  const verifiedDocs = mySubs.reduce(
-    (sum, s) => sum + s.docs.filter(d => d.status === 'VERIFIED').length,
-    0
-  )
 
   // Deadlines: active submissions closing soon
   const deadlines: AttentionItem[] = activeSubs
@@ -1019,11 +1016,6 @@ export async function getSellerDashboardV2(user: AuthedUser): Promise<SellerDash
         change: completedTenders.length > 0
           ? `${wonCount} of ${completedTenders.length} completed bids won`
           : 'No completed bids yet',
-      },
-      {
-        label: 'Documents verified',
-        value: String(verifiedDocs),
-        change: 'Across your submissions',
       },
       {
         label: 'Open opportunities',

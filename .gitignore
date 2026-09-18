@@ -13,3 +13,13 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+
+# Generated build artifacts
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# OCR model (downloaded at build time)
+eng.traineddata
+
+# Upload binaries (should not be committed)
+.data/uploads/

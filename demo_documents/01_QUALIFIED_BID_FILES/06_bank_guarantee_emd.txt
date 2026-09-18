@@ -1,0 +1,27 @@
+== SIMULATED STATUTORY BANKING INSTRUMENT ==
+STATE BANK OF INDIA — COMMERCIAL BRANCH, NEW DELHI
+BANK GUARANTEE FOR EARNEST MONEY DEPOSIT (EMD) / BID SECURITY
+
+Bank Guarantee No: SBI/BG/2026/009182
+Issue Date: 15/02/2026
+Tender Reference: GeM / Government Procurement Tender
+
+To: The Procurement Officer / Tender Inviting Authority
+
+WHEREAS M/s Nexora Systems Private Limited (hereinafter called "the Bidder") has submitted its bid for the Tender.
+
+KNOW ALL MEN by these presents that WE, State Bank of India, having our registered office at SBI Bhavan, Mumbai and Commercial Branch at Parliament Street, New Delhi, are bound unto the Purchaser in the sum of ₹4,00,000/- (Rupees Four Lakhs Only).
+
+TERMS & VALIDITY:
+1. Bid Opening Date Reference: 2026-04-01
+2. Bid Validity Period: 30 Days (Covered up to 2026-05-01)
+3. Mandatory Legally Protected Claim Period: 90 Days beyond Bid Validity
+4. Absolute Validity & Expiry Date: 01/06/2027 (Valid Till: 2027-06-01)
+
+This Guarantee shall remain in full force and effect up to 01/06/2027 (including a claim period of well over the mandatory 45 days).
+
+For State Bank of India
+Chief Manager & Authorized Signatory
+
+BIDSURE-MOCK-EXTRACT {"bgNumber":"SBI/BG/2026/009182","amountCr":0.04,"validTill":"2027-06-01","claimPeriodDays":90,"issuingBank":"State Bank of India"}
+-- end of banking instrument --

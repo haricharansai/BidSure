@@ -1,0 +1,27 @@
+== SIMULATED STATUTORY AUDIT DOCUMENT ==
+THE INSTITUTE OF CHARTERED ACCOUNTANTS OF INDIA (ICAI)
+ANNUAL TURNOVER & NET WORTH CERTIFICATE
+
+To: The Procurement Officer / Tender Authority
+
+This is to certify that we have audited the books of accounts of:
+Entity Name: Nexora Systems Private Limited
+PAN: AAECN1234E
+GSTIN: 07AAECN1234E1ZP
+
+Based on the audited financial statements, the turnover figures are certified as follows:
+Financial Year 2023-2024: ₹21.80 Crores
+Financial Year 2024-2025: ₹23.90 Crores
+Financial Year 2025-2026: ₹24.20 Crores
+Average Annual Turnover (Last 3 Years): ₹23.30 Crores
+Latest Annual Turnover: ₹24.20 Crores
+Certified Positive Net Worth: ₹6.50 Crores
+
+UDIN: 261234567890123456
+UDIN Generation Date: 10/04/2026
+Practicing Chartered Accountant: CA R. Iyer & Associates
+ICAI Membership Number: 012345
+Firm Registration No: 102345N
+
+BIDSURE-MOCK-EXTRACT {"udin":"261234567890123456","certDate":"2026-04-10","turnoverCr":24.2,"netWorthCr":6.5,"caName":"CA R. Iyer & Associates","membershipNo":"012345","fy":"2025-26"}
+-- end of statutory document --

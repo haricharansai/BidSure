@@ -1,0 +1,22 @@
+== SIMULATED NON-COMPLIANT BANKING INSTRUMENT ==
+BANK GUARANTEE — INSUFFICIENT CLAIM PERIOD
+[DEMO PURPOSE: Showcase BidSure's 45-Day BG Claim Period Validation]
+
+Bank Guarantee No: PNB/BG/2026/001928
+Issuing Bank: Punjab National Bank
+
+To: The Procurement Officer
+
+GUARANTEE DATES:
+- Bid Opening Reference: 2026-09-01
+- Tender Bid Validity: 30 Days (Covered up to 2026-10-01)
+- Declared Expiry Date: 2026-10-15 (Valid Till: 2026-10-15)
+- Calculated Claim Period: 14 Days beyond Bid Validity
+
+ERROR REASON:
+- Law requires a minimum 45-day claim period past the bid validity period to protect the government buyer against dishonored commitments.
+- Found only 14 days claim period (31 days short of the statutory 45-day minimum).
+- System Result: NON_COMPLIANT -> Bank Guarantee Claim Period Trap Disqualification.
+
+BIDSURE-MOCK-EXTRACT {"bgNumber":"PNB/BG/2026/001928","amountCr":0.04,"validTill":"2026-10-15","claimPeriodDays":14}
+-- end of document --

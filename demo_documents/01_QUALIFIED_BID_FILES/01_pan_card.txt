@@ -1,0 +1,13 @@
+== SIMULATED GOVERNMENT OF INDIA STATUTORY DOCUMENT ==
+INCOME TAX DEPARTMENT — PERMANENT ACCOUNT NUMBER CARD
+
+Document Type: Permanent Account Number (PAN) Card
+PAN: AAECN1234E
+Name: Nexora Systems Private Limited
+Father's/Entity Name: Incorporated Entity
+Date of Incorporation: 14/08/2014
+Entity Classification: Company (4th character 'C')
+Status: Active & Verified on Income Tax Registry
+
+BIDSURE-MOCK-EXTRACT {"pan":"AAECN1234E","name":"Nexora Systems Private Limited","entityType":"Company","status":"ACTIVE"}
+-- end of statutory document --

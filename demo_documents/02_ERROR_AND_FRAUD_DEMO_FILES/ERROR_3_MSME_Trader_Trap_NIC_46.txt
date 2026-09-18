@@ -1,0 +1,20 @@
+== SIMULATED STATUTORY VIOLATION DOCUMENT ==
+UDYAM REGISTRATION CERTIFICATE — TRADER CLASSIFICATION
+[DEMO PURPOSE: Showcase BidSure's OM F.9/4/2020-PPD Trader MSME Trap Detection]
+
+UDYAM REGISTRATION NUMBER: UDYAM-07-00-0044556
+Name of Enterprise: QuickTrade Wholesale Mart
+Enterprise Category: Micro Enterprise
+
+NATIONAL INDUSTRY CLASSIFICATION (NIC) CODE:
+- 46511: Wholesale of computers, computer peripheral equipment and software
+
+CLAIM ON TENDER:
+- Bidder claims MSME EMD Exemption on a Goods Procurement Tender.
+
+ERROR REASON:
+- Under Ministry of Finance Office Memorandum OM F.9/4/2020-PPD, NIC 2-digit codes 45, 46, 47 (wholesale and retail trade) are statutorily ineligible for EMD / Bid Security exemptions in goods tenders.
+- System Result: TRADER_MSME_TRAP Flagged -> NON_COMPLIANT -> Immediate Fatal Disqualification.
+
+BIDSURE-MOCK-EXTRACT {"udyamNo":"UDYAM-07-00-0044556","enterpriseName":"QuickTrade Wholesale Mart","nicCode":"46511","trader":true}
+-- end of document --

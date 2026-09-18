@@ -1,0 +1,16 @@
+== SIMULATED GOVERNMENT OF INDIA STATUTORY DOCUMENT ==
+GOODS AND SERVICES TAX REGISTRATION CERTIFICATE
+Government of India / Government of NCT of Delhi
+
+Registration Number (GSTIN): 07AAECN1234E1ZP
+Legal Name: Nexora Systems Private Limited
+Trade Name: Nexora
+Constitution of Business: Private Limited Company
+Principal Place of Business: Plot 42, Okhla Industrial Area Phase-III, New Delhi 110020
+Date of Registration: 01/07/2017
+Type of Registration: Regular Taxpayer
+GSTIN Checksum Status: Verified (Base-36 Luhn Mod 36 Algorithm Validated)
+Embedded PAN: AAECN1234E (Matches Tax Records)
+
+BIDSURE-MOCK-EXTRACT {"gstin":"07AAECN1234E1ZP","legalName":"Nexora Systems Private Limited","tradeName":"Nexora","stateCode":"07","pan":"AAECN1234E","status":"ACTIVE"}
+-- end of statutory document --

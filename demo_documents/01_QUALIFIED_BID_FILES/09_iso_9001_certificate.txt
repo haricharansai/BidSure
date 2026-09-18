@@ -1,0 +1,22 @@
+== SIMULATED QUALITY ACCREDITATION CERTIFICATE ==
+INTERNATIONAL ORGANIZATION FOR STANDARDIZATION
+CERTIFICATE OF CONFORMITY — ISO 9001:2015
+
+Certificate Number: ISO-9001-2024-NX88192
+Accredited Body: National Accreditation Board for Certification Bodies (NABCB)
+
+This is to certify that the Quality Management System of:
+M/s Nexora Systems Private Limited
+Plot 42, Okhla Industrial Area Phase-III, New Delhi 110020, India
+
+Has been assessed and found to conform to the requirements of ISO 9001:2015 for the following scope:
+"Design, Development, Integration, Deployment and Maintenance of Enterprise Software, Hardware Systems and Digital Procurement Infrastructure."
+
+Original Certification Date: 12/05/2018
+Current Issue Date: 10/05/2024
+Expiry Date / Valid Till: 09/05/2027
+
+Status: Active & In Good Standing
+
+BIDSURE-MOCK-EXTRACT {"iso":true,"standard":"ISO 9001:2015","certNumber":"ISO-9001-2024-NX88192","validTill":"2027-05-09"}
+-- end of accreditation certificate --

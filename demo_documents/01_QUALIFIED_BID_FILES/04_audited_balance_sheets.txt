@@ -1,0 +1,31 @@
+== SIMULATED STATUTORY AUDIT DOCUMENT ==
+AUDITED BALANCE SHEETS & PROFIT AND LOSS STATEMENTS (3 YEARS)
+
+Company Name: Nexora Systems Private Limited
+CIN: U72900DL2014PTC270123
+PAN: AAECN1234E
+
+SUMMARY OF AUDITED FINANCIAL STATEMENTS:
+1. Financial Year 2023-2024:
+   - Revenue from Operations: ₹21.80 Crores
+   - Audited Profit After Tax: ₹2.10 Crores
+   - Net Worth: ₹4.80 Crores
+
+2. Financial Year 2024-2025:
+   - Revenue from Operations: ₹23.90 Crores
+   - Audited Profit After Tax: ₹2.45 Crores
+   - Net Worth: ₹5.60 Crores
+
+3. Financial Year 2025-2026:
+   - Revenue from Operations (P&L): ₹23.50 Crores
+   - Cumulative GSTR-3B Filings Total: ₹23.80 Crores
+   - CA Certified Turnover: ₹24.20 Crores
+   - Audited Profit After Tax: ₹2.85 Crores
+   - Paid-Up Capital + Free Reserves (Positive Net Worth): ₹6.50 Crores
+
+Triangulation Note: CA Turnover (₹24.20 Cr) vs GSTR-3B (₹23.80 Cr) variance = 1.65% (Within 10% statutory tolerance).
+Statutory Auditor: M/s S. K. Mehta & Co., Chartered Accountants
+Auditor Signature: Verified & Sealed
+
+BIDSURE-MOCK-EXTRACT {"auditedPnlCr":23.5,"gstr3bTotalCr":23.8,"netWorthCr":6.5,"validTill":"2027-03-31","solvencyStatus":"SOLVENT"}
+-- end of statutory document --

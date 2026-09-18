@@ -105,7 +105,19 @@ export async function createTender({ user, body }: ActionContext) {
     })),
   }
 
-  const id = `GOV/${(str(body.category, 'GEN') || 'GEN').toUpperCase().slice(0, 6)}/2026/${randomBytes(2).toString('hex').toUpperCase()}`
+  // Generate a unique tender ID. Use 6 random bytes (12 hex chars = 281 trillion
+  // possibilities) with a retry loop to handle the astronomically unlikely collision.
+  const category = (str(body.category, 'GEN') || 'GEN').toUpperCase().slice(0, 6)
+  const year = new Date().getFullYear()
+  let id = ''
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const suffix = randomBytes(6).toString('hex').toUpperCase()
+    const candidate = `GOV/${category}/${year}/${suffix}`
+    const exists = await prisma.tender.findUnique({ where: { id: candidate }, select: { id: true } })
+    if (!exists) { id = candidate; break }
+  }
+  if (!id) throw new ApiError('Could not generate a unique tender ID — please try again', 500)
+
   const tender = await prisma.tender.create({
     data: {
       id,
@@ -410,6 +422,17 @@ export async function submitTender({ user, body }: ActionContext) {
   }
 
   // Legacy claim-based path (kept for compatibility with older clients/tests).
+  // Validate that mandatory and active conditional docs are actually claimed.
+  const company = user.companyId ? await prisma.company.findUnique({ where: { id: user.companyId } }) : null
+  for (const spec of tender.requiredDocs) {
+    const claim = claims.find(c => c.docName === spec.name)
+    const conditionActive = spec.classification === 'CONDITIONAL'
+      && (spec.conditionKey === 'emd' ? tender.emdRequired : (company ? conditionAppliesForCompany(spec.conditionKey, company) : false))
+    const requiredNow = spec.classification === 'MANDATORY' || conditionActive
+    if (requiredNow && (!claim || !claim.provided)) {
+      throw new ApiError(`Required document '${spec.description}' must be provided (classification: ${spec.classification})`, 400)
+    }
+  }
   const submission = await prisma.submission.create({
     data: {
       tenderId: tender.id,
@@ -454,7 +477,7 @@ export async function placeBid({ user, body }: ActionContext) {
     throw new ApiError('Only qualified bidders can participate in the auction', 403)
   }
 
-  const bid = await prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     const tender = await tx.tender.findUnique({ where: { id: tenderId } })
     if (!tender) throw new ApiError('Tender not found', 404)
     if (tender.stage !== 'AUCTION_ACTIVE') throw new ApiError('The auction is not active', 400)
@@ -470,15 +493,39 @@ export async function placeBid({ user, body }: ActionContext) {
     const created = await tx.bid.create({
       data: { tenderId, companyId: user.companyId as string, userId: user.id, amountCr },
     })
-    return { bid: created, lowestBefore: currentLowest, stage: tender.stage }
+
+    // Auto-extension: check + increment inside the SAME transaction to prevent
+    // two concurrent bids from both extending and exceeding the 3-extension limit.
+    const AUCTION_MAX_EXTENSIONS = 3
+    const AUTO_EXTEND_WINDOW_MS = 15 * 1000
+    const AUTO_EXTEND_BY_MS = 60 * 1000
+    let extended = false
+    if (tender.auctionEnd && tender.auctionExtensions < AUCTION_MAX_EXTENSIONS) {
+      const remaining = tender.auctionEnd.getTime() - now
+      if (remaining <= AUTO_EXTEND_WINDOW_MS) {
+        const newEnd = new Date(tender.auctionEnd.getTime() + AUTO_EXTEND_BY_MS)
+        await tx.tender.update({
+          where: { id: tenderId },
+          data: { auctionEnd: newEnd, auctionExtensions: { increment: 1 } },
+        })
+        extended = true
+      }
+    }
+
+    return { bid: created, lowestBefore: currentLowest, stage: tender.stage, extended }
   })
 
-  const extended = await maybeExtendAuction(tenderId, new Date())
+  if (result.extended) {
+    await recordAudit({
+      actorId: 'SYSTEM', actorRole: 'SYSTEM', action: 'AUCTION_EXTENDED', tenderId,
+      meta: { bidId: result.bid.id, amountCr },
+    })
+  }
   await recordAudit({
     actorId: user.id, actorRole: user.role, action: 'BID_PLACED', tenderId,
-    meta: { bidId: bid.bid.id, amountCr, previousLowestCr: bid.lowestBefore, autoExtended: extended },
+    meta: { bidId: result.bid.id, amountCr, previousLowestCr: result.lowestBefore, autoExtended: result.extended },
   })
-  return { bidId: bid.bid.id, extended }
+  return { bidId: result.bid.id, extended: result.extended }
 }
 
 export async function respondClarification({ user, body }: ActionContext) {

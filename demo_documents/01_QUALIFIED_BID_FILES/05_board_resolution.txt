@@ -1,0 +1,18 @@
+== SIMULATED CORPORATE LEGAL DOCUMENT ==
+NEXORA SYSTEMS PRIVATE LIMITED
+Regd Office: Plot 42, Okhla Industrial Area Phase-III, New Delhi 110020
+CIN: U72900DL2014PTC270123
+
+CERTIFIED TRUE COPY OF THE RESOLUTION PASSED AT THE MEETING OF THE BOARD OF DIRECTORS
+HELD ON 15TH JANUARY, 2026 AT THE REGISTERED OFFICE OF THE COMPANY
+
+"RESOLVED THAT the Company be and is hereby authorized to participate in Central/State Government, PSU, and GeM Tenders for Supply, Implementation, and Maintenance of Enterprise Digital Solutions.
+
+RESOLVED FURTHER THAT Mr. Haricharan / Authorized Signatory (Director DIN: 08451234), be and is hereby authorized on behalf of the Company to execute all tender documents, submit bids, sign contracts, furnish Bank Guarantees / EMDs, and do all such acts as may be required in connection therewith."
+
+For Nexora Systems Private Limited
+Director 1: DIN 08451234 (Managing Director)
+Director 2: DIN 09124567 (Director - Technical)
+
+BIDSURE-MOCK-EXTRACT {"companyName":"Nexora Systems Private Limited","authorizedSignatory":"Haricharan","directorDins":["08451234","09124567"],"validTill":"2027-12-31"}
+-- end of corporate document --

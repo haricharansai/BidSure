@@ -1,0 +1,24 @@
+== SIMULATED FRAUDULENT FINANCIAL CERTIFICATE ==
+CHARTERED ACCOUNTANT TURNOVER CERTIFICATE
+[DEMO PURPOSE: Showcase BidSure's 3-Way Turnover Triangulation Engine]
+
+To: The Procurement Authority
+
+Entity Name: XYZ Trading Private Limited
+PAN: AABCU9603R
+
+Declared Figures on this Certificate:
+Certified Annual Turnover: ₹9.80 Crores
+UDIN: 269876543210987654
+
+ACTUAL TAX FILINGS ON RECORD:
+- Cumulative GSTR-3B Filings: ₹6.10 Crores
+- Audited P&L Filings: ₹7.20 Crores
+
+ERROR REASON:
+- Variance between CA Certificate (₹9.80 Cr) and GSTR-3B Tax Filings (₹6.10 Cr) is 37.76%.
+- Statutory Maximum Permissible Tolerance is 10.00%.
+- System Result: Critical Financial Anomaly -> NON_COMPLIANT -> Disqualification & Officer Fraud Alert.
+
+BIDSURE-MOCK-EXTRACT {"udin":"269876543210987654","certDate":"2026-04-10","turnoverCr":9.8,"gstr3bTotalCr":6.1,"auditedPnlCr":7.2,"caName":"Fraud CA Associates"}
+-- end of document --

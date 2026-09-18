@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "db:seed": "node prisma/seed.ts",
-    "test": "node --test tests/engine.test.ts tests/registry.test.ts tests/extraction.test.ts tests/classification.test.ts tests/ocr-extraction.test.ts tests/verification-policy.test.ts tests/storage.test.ts tests/pipeline.test.ts"
+    "test": "node --test tests/engine.test.ts tests/registry.test.ts tests/extraction.test.ts tests/classification.test.ts tests/ocr-extraction.test.ts tests/verification-policy.test.ts tests/storage.test.ts tests/pipeline.test.ts",
+    "omniroute": "npx omniroute",
+    "omniroute:start": "npx omniroute serve --no-open",
+    "omniroute:status": "npx omniroute status"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"
@@ -18,8 +21,12 @@
     "@vercel/analytics": "1.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "lightningcss": "^1.33.0",
+    "lightningcss-win32-x64-msvc": "^1.33.0",
     "lucide-react": "^1.16.0",
     "next": "16.3.0",
+    "omniroute": "^3.8.50",
+    "pdf2pic": "^3.2.0",
     "react": "^19",
     "react-dom": "^19",
     "shadcn": "^4.8.0",

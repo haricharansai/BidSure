@@ -131,21 +131,25 @@ export async function closeAuction(tenderId: string): Promise<void> {
  * Returns whether an extension was applied.
  */
 export async function maybeExtendAuction(tenderId: string, now: Date): Promise<boolean> {
-  const tender = await prisma.tender.findUnique({ where: { id: tenderId } })
-  if (!tender || tender.stage !== 'AUCTION_ACTIVE' || !tender.auctionEnd) return false
-  if (tender.auctionExtensions >= AUCTION_MAX_EXTENSIONS) return false
-  const remaining = tender.auctionEnd.getTime() - now.getTime()
-  if (remaining > AUTO_EXTEND_WINDOW_MS) return false
-  const newEnd = new Date(tender.auctionEnd.getTime() + AUTO_EXTEND_BY_MS)
-  await prisma.tender.update({
-    where: { id: tenderId },
-    data: { auctionEnd: newEnd, auctionExtensions: { increment: 1 } },
+  // Wrap read-check-update in a transaction to prevent two concurrent callers
+  // from both reading the same auctionExtensions count and both extending.
+  return prisma.$transaction(async tx => {
+    const tender = await tx.tender.findUnique({ where: { id: tenderId } })
+    if (!tender || tender.stage !== 'AUCTION_ACTIVE' || !tender.auctionEnd) return false
+    if (tender.auctionExtensions >= AUCTION_MAX_EXTENSIONS) return false
+    const remaining = tender.auctionEnd.getTime() - now.getTime()
+    if (remaining > AUTO_EXTEND_WINDOW_MS) return false
+    const newEnd = new Date(tender.auctionEnd.getTime() + AUTO_EXTEND_BY_MS)
+    await tx.tender.update({
+      where: { id: tenderId },
+      data: { auctionEnd: newEnd, auctionExtensions: { increment: 1 } },
+    })
+    await recordAudit({
+      actorId: tender.createdById, actorRole: 'SYSTEM', action: 'AUCTION_EXTENDED', tenderId,
+      meta: { newEndISO: newEnd.toISOString(), extension: tender.auctionExtensions + 1 },
+    })
+    return true
   })
-  await recordAudit({
-    actorId: tender.createdById, actorRole: 'SYSTEM', action: 'AUCTION_EXTENDED', tenderId,
-    meta: { newEndISO: newEnd.toISOString(), extension: tender.auctionExtensions + 1 },
-  })
-  return true
 }
 
 export function clarificationDeadline(from: Date = new Date()): Date {

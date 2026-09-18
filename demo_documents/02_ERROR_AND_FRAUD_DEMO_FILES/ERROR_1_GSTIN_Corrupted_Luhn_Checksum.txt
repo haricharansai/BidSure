@@ -1,0 +1,17 @@
+== SIMULATED FORGED / TAMPERED STATUTORY DOCUMENT ==
+GOODS AND SERVICES TAX REGISTRATION CERTIFICATE
+[DEMO PURPOSE: Showcase BidSure's Base-36 Luhn Checksum Detection]
+
+Registration Number (GSTIN): 07AAECN1234E1ZQ
+(Note: The 15th character has been tampered from 'P' to 'Q')
+Legal Name: Nexora Systems Private Limited
+Trade Name: Nexora
+Type of Registration: Regular Taxpayer
+
+ERROR REASON:
+- The Base-36 Luhn weighted checksum modulo 36 expects checksum digit 'P'.
+- Found checksum digit 'Q'.
+- System Result: Deterministic Checksum Failure -> NON_COMPLIANT -> Immediate Disqualification under GFR Rule 173.
+
+BIDSURE-MOCK-EXTRACT {"gstin":"07AAECN1234E1ZQ","legalName":"Nexora Systems Private Limited"}
+-- end of document --

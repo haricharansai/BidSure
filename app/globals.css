@@ -578,7 +578,7 @@ input:focus-visible { outline: none; border-color: var(--primary); box-shadow: v
 /* ============================================================
    Page frame + stat cards + panels (cards)
    ============================================================ */
-.page-content { padding: var(--space-7) var(--space-7); max-width: 1500px; margin: auto; width: 100%; animation: bs-fade-in 0.35s ease both; }
+.page-content { padding: var(--space-7) var(--space-7); max-width: 1400px; margin: auto; width: 100%; animation: bs-fade-in 0.35s ease both; }
 .page-title { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: var(--space-6); gap: var(--space-5); }
 .page-title h1 { font-size: var(--text-3xl); margin: 0; color: var(--foreground); font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); }
 .page-title > div > p:last-child { margin: var(--space-1) 0 0; color: var(--muted-foreground); }
@@ -604,7 +604,7 @@ input:focus-visible { outline: none; border-color: var(--primary); box-shadow: v
 .stat small { color: var(--green); font-size: var(--text-xs); }
 .stat small.red { color: var(--red); }
 
-.dashboard-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: var(--space-5); }
+.dashboard-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: var(--space-5); max-width: 1400px; }
 .panel { padding: var(--space-6); box-shadow: var(--shadow-xs); }
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-5); gap: var(--space-4); }
 .panel-head h2 { font-size: var(--text-lg); }
@@ -722,7 +722,7 @@ td svg { vertical-align: middle; margin-right: var(--space-1); color: var(--mute
    Detail + requirements
    ============================================================ */
 .detail-actions { display: flex; justify-content: flex-end; gap: var(--space-3); margin: calc(var(--space-2) * -1) 0 var(--space-6); align-items: center; flex-wrap: wrap; }
-.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-bottom: var(--space-5); }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-bottom: var(--space-5); max-width: 1400px; }
 .detail-list > div { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); font-size: var(--text-sm); }
 .detail-list > div:last-child { border-bottom: 0; }
 .detail-list span { color: var(--muted-foreground); }
@@ -749,7 +749,7 @@ td svg { vertical-align: middle; margin-right: var(--space-1); color: var(--mute
 /* ============================================================
    Compliance + evidence
    ============================================================ */
-.compliance-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: var(--space-5); }
+.compliance-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: var(--space-5); max-width: 1400px; }
 .check-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-2); border-bottom: 1px solid var(--border-subtle); border-radius: var(--radius-md); transition: background-color 0.12s ease; }
 .check-row:hover { background: var(--row-hover); }
 .check-row:last-child { border-bottom: 0; }
@@ -859,7 +859,7 @@ td svg { vertical-align: middle; margin-right: var(--space-1); color: var(--mute
 .doc span svg { width: 26px; height: 26px; }
 
 /* overview / placeholder pages */
-.overview-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: var(--space-5); align-items: start; }
+.overview-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: var(--space-5); align-items: start; max-width: 1400px; }
 .overview-hero { display: flex; gap: var(--space-4); align-items: flex-start; margin-bottom: var(--space-5); }
 .overview-hero .circle-icon { width: 54px; height: 54px; border-radius: var(--radius-lg); }
 .overview-hero h2 { font-size: var(--text-xl); }
